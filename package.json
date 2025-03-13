@@ -1,5 +1,5 @@
 {
-  "name": "@jeswr/template-typescript",
+  "name": "@jeswr/solid-mcp",
   "version": "0.0.0-development",
   "description": "",
   "main": "dist/index.js",
@@ -22,27 +22,27 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jeswr/template-typescript"
+    "url": "https://github.com/jeswr/solid-mcp"
   },
   "keywords": [],
   "author": "Jesse Wright <https://github.com/jeswr/>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/jeswr/template-typescript/issues"
+    "url": "https://github.com/jeswr/solid-mcp/issues"
   },
-  "homepage": "https://github.com/jeswr/template-typescript/README.md",
+  "homepage": "https://github.com/jeswr/solid-mcp/README.md",
   "devDependencies": {
-    "@types/jest": "^29.5.12",
-    "@typescript-eslint/eslint-plugin": "^7.7.1",
-    "@typescript-eslint/parser": "^7.7.1",
-    "eslint": "^8.57.0",
+    "@types/jest": "^29.5.14",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-import": "^2.31.0",
     "jest": "^29.7.0",
     "pre-commit": "^1.2.2",
-    "semantic-release": "^24.0.0",
-    "ts-jest": "^29.1.2",
-    "typescript": "^5.4.5"
+    "semantic-release": "^24.2.3",
+    "ts-jest": "^29.2.6",
+    "typescript": "^5.8.2"
   },
   "jest": {
     "preset": "ts-jest",
