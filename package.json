@@ -21,7 +21,10 @@
     "build": "tsc",
     "prepare": "tsc",
     "semantic-release": "semantic-release",
-    "example": "ts-node lib/examples/basic-usage.ts"
+    "example": "ts-node lib/examples/basic-usage.ts",
+    "example:mcp-client": "ts-node lib/examples/mcp-client-example.ts",
+    "example:mcp-server": "ts-node lib/examples/mcp-server-example.ts",
+    "example:mcp-adapter": "ts-node lib/examples/mcp-adapter-example.ts"
   },
   "repository": {
     "type": "git",
@@ -58,6 +61,7 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.7.0",
     "cross-fetch": "^4.1.0",
     "rdf-parse": "^4.0.0"
   },
