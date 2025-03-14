@@ -14,6 +14,8 @@
     "test:coverage": "npm test -- --coverage",
     "test:badges": "npm run test:coverage  && jest-coverage-badges",
     "test": "jest",
+    "test:integration": "jest __tests__/integration",
+    "test:unit": "jest __tests__/main-test.ts",
     "lint": "eslint lib/* __tests__/* --ext .ts",
     "lint:fix": "eslint lib/* __tests__/* --ext .ts --fix",
     "build": "tsc",
@@ -56,8 +58,8 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "cross-fetch": "^4.0.0",
-    "rdf-parse": "^2.3.2"
+    "cross-fetch": "^4.1.0",
+    "rdf-parse": "^4.0.0"
   },
   "jest": {
     "preset": "ts-jest",
