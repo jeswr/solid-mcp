@@ -24,7 +24,8 @@
     "example": "ts-node lib/examples/basic-usage.ts",
     "example:mcp-client": "ts-node lib/examples/mcp-client-example.ts",
     "example:mcp-server": "ts-node lib/examples/mcp-server-example.ts",
-    "example:mcp-adapter": "ts-node lib/examples/mcp-adapter-example.ts"
+    "example:mcp-adapter": "ts-node lib/examples/mcp-adapter-example.ts",
+    "test:css": "jest __tests__/integration/css-integration.test.ts --testTimeout=60000"
   },
   "repository": {
     "type": "git",
@@ -47,6 +48,7 @@
   },
   "homepage": "https://github.com/jeswr/solid-mcp/README.md",
   "devDependencies": {
+    "@solid/community-server": "^7.1.6",
     "@types/jest": "^29.5.14",
     "@typescript-eslint/eslint-plugin": "^8.26.1",
     "@typescript-eslint/parser": "^8.26.1",
