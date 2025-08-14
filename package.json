@@ -61,7 +61,7 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.2",
+    "@modelcontextprotocol/sdk": "^1.17.3",
     "cross-fetch": "^4.1.0",
     "rdf-parse": "^4.0.0"
   },
