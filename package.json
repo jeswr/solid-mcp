@@ -63,7 +63,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "cross-fetch": "^4.1.0",
-    "rdf-parse": "^4.0.0"
+    "rdf-parse": "^5.0.0"
   },
   "jest": {
     "preset": "ts-jest",
