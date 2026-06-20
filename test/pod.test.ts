@@ -424,4 +424,35 @@ describe("writeResource", () => {
       writeResource(cfg(failing, { readOnly: false }), `${POD}new.ttl`, "x", "text/turtle"),
     ).rejects.toThrow(/HTTP 500/);
   });
+
+  it("REFUSES to follow a redirect on a write (redirect SSRF) and does not replay the body", async () => {
+    // Record the redirect mode + every requested URL: a write must use manual
+    // redirect, reject the 3xx, and never re-issue the body to the redirect target.
+    const requests: Array<{ url: string; redirect: RequestRedirect | undefined; body: unknown }> =
+      [];
+    const redirecting = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push({ url: u, redirect: init?.redirect, body: init?.body });
+      // First (and only) call returns a redirect to an external target.
+      return new Response(null, {
+        status: 307,
+        headers: { location: "https://evil.example/sink" },
+      });
+    }) as typeof fetch;
+    await expect(
+      writeResource(
+        cfg(redirecting, { readOnly: false }),
+        `${POD}new.ttl`,
+        "secret",
+        "text/turtle",
+      ),
+    ).rejects.toThrow(/refusing to follow a redirect.*SSRF/s);
+    // Exactly one request was made (the redirect was NOT followed) ...
+    expect(requests.length).toBe(1);
+    // ... it used manual redirect handling ...
+    expect(requests[0]?.redirect).toBe("manual");
+    // ... and the external target was never requested (body not replayed).
+    expect(requests.map((r) => r.url)).not.toContain("https://evil.example/sink");
+  });
 });
