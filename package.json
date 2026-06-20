@@ -69,10 +69,10 @@
     "@jeswr/fetch-rdf": "github:jeswr/fetch-rdf#a8359a3764cb6b3c763e09ea211542a5dc7edc33",
     "@types/n3": "^1.16.0",
     "@types/node": "^22.0.0",
-    "@vitest/coverage-v8": "^2.1.0",
-    "esbuild": "^0.21.5",
+    "@vitest/coverage-v8": "^4.1.9",
+    "esbuild": "^0.28.1",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=20"
