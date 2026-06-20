@@ -105,3 +105,22 @@ export function containerTurtle(
   }
   return lines.join("\n");
 }
+
+/**
+ * Build a Turtle container listing whose `ldp:contains` entries are ARBITRARY
+ * absolute URLs (used to model a POISONED listing that points a child at an
+ * external origin — the SSRF attack surface). `childUrls` are written verbatim.
+ */
+export function poisonedContainerTurtle(base: string, childUrls: string[]): string {
+  const lines: string[] = [
+    "@prefix ldp: <http://www.w3.org/ns/ldp#> .",
+    "",
+    `<${base}> a ldp:Container, ldp:BasicContainer, ldp:Resource ;`,
+    `  ldp:contains ${childUrls.map((u) => `<${u}>`).join(", ")} .`,
+    "",
+  ];
+  for (const u of childUrls) {
+    lines.push(`<${u}> a ldp:Resource .`);
+  }
+  return lines.join("\n");
+}

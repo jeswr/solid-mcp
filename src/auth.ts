@@ -114,6 +114,25 @@ export function requirePodScopedUrl(config: { podRoot: string }, url: string): s
   return canonical;
 }
 
+/**
+ * Non-throwing variant of {@link requirePodScopedUrl}: returns the canonical
+ * in-pod URL string, or `undefined` if `url` is not within the pod root (or is
+ * not a valid http(s) URL). Use this to FILTER OUT untrusted URLs (e.g. child
+ * entries from a container listing, or type-index targets discovered from a
+ * profile) rather than throwing — a malicious listing/profile that points at an
+ * external origin is silently dropped (fail-closed) instead of aborting the call.
+ */
+export function podScopedUrlOrUndefined(
+  config: { podRoot: string },
+  url: string,
+): string | undefined {
+  try {
+    return requirePodScopedUrl(config, url);
+  } catch {
+    return undefined;
+  }
+}
+
 /** True when writes are enabled (the caller explicitly opted out of read-only). */
 export function writesEnabled(config: SolidMcpConfig): boolean {
   return config.readOnly === false;

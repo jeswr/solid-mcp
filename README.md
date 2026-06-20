@@ -145,9 +145,7 @@ import {
   // pod operations (programmatic / testing):
   listContainer, readResource, readRdf, search, writeResource,
   // auth helpers + scope guard:
-  normalizePodRoot, requirePodScopedUrl, writesEnabled,
-  // re-exported error:
-  RdfFetchError,
+  normalizePodRoot, requirePodScopedUrl, podScopedUrlOrUndefined, writesEnabled,
   // types:
   type PodChild, type ReadResult, type ReadRdfResult, type SearchMatch, type SearchOptions,
 } from "@jeswr/solid-mcp";

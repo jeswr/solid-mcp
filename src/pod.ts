@@ -7,10 +7,15 @@
  * (`ContainerDataset`), and any RDF representation we hand back to a client is
  * re-serialised with `n3.Writer` over the parsed quads.
  */
-import { fetchRdf, RdfFetchError } from "@jeswr/fetch-rdf";
+import { fetchRdf } from "@jeswr/fetch-rdf";
 import { ContainerDataset } from "@solid/object";
 import { DataFactory, Writer } from "n3";
-import { requirePodScopedUrl, type SolidMcpConfig, writesEnabled } from "./auth.js";
+import {
+  podScopedUrlOrUndefined,
+  requirePodScopedUrl,
+  type SolidMcpConfig,
+  writesEnabled,
+} from "./auth.js";
 
 /** A typed child of an LDP container, mapped to absolute URLs. */
 export interface PodChild {
@@ -111,6 +116,14 @@ function bareMediaType(header: string | null): string | undefined {
  * List the children of an LDP container at `url` (pod-scoped). Parses the
  * container listing via fetch-rdf + @solid/object's ContainerDataset; maps each
  * child's (possibly relative) id to an absolute URL.
+ *
+ * SECURITY: a container listing is UNTRUSTED data — a malicious or compromised
+ * pod could put an `ldp:contains` entry pointing at an external origin. Every
+ * resolved child URL is therefore re-validated against the pod scope, and any
+ * child that resolves OUTSIDE the pod is DROPPED (fail-closed). This is what
+ * stops a poisoned listing from making a downstream `solid_read` / `solid_search`
+ * fetch an arbitrary URL (SSRF). Callers can rely on every returned `child.url`
+ * being in-pod.
  */
 export async function listContainer(config: SolidMcpConfig, url: string): Promise<PodChild[]> {
   const target = requirePodScopedUrl(config, url);
@@ -118,8 +131,19 @@ export async function listContainer(config: SolidMcpConfig, url: string): Promis
   const container = new ContainerDataset(dataset, DataFactory).container;
   const children: PodChild[] = [];
   for (const r of container?.contains ?? []) {
-    // child.id may be relative to the container; resolve against the container URL.
-    const childUrl = new URL(r.id, target).toString();
+    // child.id may be relative to the container; resolve against the container URL,
+    // then re-validate it is within the pod (the listing is untrusted — drop any
+    // entry that escapes the pod scope rather than trusting it).
+    let resolvedChild: string;
+    try {
+      resolvedChild = new URL(r.id, target).toString();
+    } catch {
+      continue; // unparseable child id — skip.
+    }
+    const childUrl = podScopedUrlOrUndefined(config, resolvedChild);
+    if (childUrl === undefined) {
+      continue; // out-of-pod child entry in the listing — drop it (SSRF guard).
+    }
     const child: PodChild = {
       url: childUrl,
       name: r.name,
@@ -341,9 +365,15 @@ async function literalMatch(
   url: string,
   q: string,
 ): Promise<string | undefined> {
+  // Defense-in-depth: never fetch a URL we cannot confirm is in-pod, even though
+  // callers pass scope-filtered URLs (the listing is untrusted — SSRF guard).
+  const target = podScopedUrlOrUndefined(config, url);
+  if (target === undefined) {
+    return undefined;
+  }
   let dataset: import("n3").Store;
   try {
-    ({ dataset } = await fetchRdf(url, { fetch: config.fetch }));
+    ({ dataset } = await fetchRdf(target, { fetch: config.fetch }));
   } catch {
     return undefined;
   }
@@ -364,25 +394,42 @@ async function literalMatch(
  * `solid:publicTypeIndex` / `solid:privateTypeIndex`, then each type index's
  * `solid:instance` / `solid:instanceContainer`. Returns absolute URL strings.
  * Throws only if the profile itself cannot be fetched — caller catches.
+ *
+ * SECURITY: the WebID profile is the one URL we fetch off-pod — it is the owner's
+ * configured identity (`config.webId`), often on a different origin, so it is
+ * trusted by configuration. But every URL DISCOVERED from that profile (the
+ * type-index documents) and from the type-index documents (the instance targets)
+ * is UNTRUSTED RDF: a malicious profile could point `solid:publicTypeIndex` at an
+ * arbitrary origin. So we (a) only FETCH a discovered type-index document if it is
+ * within the pod, and (b) only EMIT instance/instanceContainer URLs that are
+ * within the pod. This prevents the profile from steering `search` into an SSRF.
  */
 async function typeIndexContainers(config: SolidMcpConfig): Promise<string[]> {
   const webId = config.webId;
   if (!webId) return [];
-  const Solid = "http://www.w3.org/ns/solid/terms#";
+  const solidNs = "http://www.w3.org/ns/solid/terms#";
   const out = new Set<string>();
   const { dataset: profile } = await fetchRdf(webId, { fetch: config.fetch });
   const indexes = new Set<string>();
-  for (const p of [`${Solid}publicTypeIndex`, `${Solid}privateTypeIndex`]) {
+  for (const p of [`${solidNs}publicTypeIndex`, `${solidNs}privateTypeIndex`]) {
     for (const quad of profile.getQuads(null, DataFactory.namedNode(p), null, null)) {
-      if (quad.object.termType === "NamedNode") indexes.add(quad.object.value);
+      if (quad.object.termType === "NamedNode") {
+        // Only fetch type-index documents that are within the pod (untrusted ref).
+        const scoped = podScopedUrlOrUndefined(config, quad.object.value);
+        if (scoped !== undefined) indexes.add(scoped);
+      }
     }
   }
   for (const index of indexes) {
     try {
       const { dataset: ti } = await fetchRdf(index, { fetch: config.fetch });
-      for (const p of [`${Solid}instance`, `${Solid}instanceContainer`]) {
+      for (const p of [`${solidNs}instance`, `${solidNs}instanceContainer`]) {
         for (const quad of ti.getQuads(null, DataFactory.namedNode(p), null, null)) {
-          if (quad.object.termType === "NamedNode") out.add(quad.object.value);
+          if (quad.object.termType === "NamedNode") {
+            // Only emit in-pod instance targets (the caller scope-checks again).
+            const scoped = podScopedUrlOrUndefined(config, quad.object.value);
+            if (scoped !== undefined) out.add(scoped);
+          }
         }
       }
     } catch {
@@ -426,5 +473,3 @@ export async function writeResource(
   if (etag !== undefined) result.etag = etag;
   return result;
 }
-
-export { RdfFetchError };

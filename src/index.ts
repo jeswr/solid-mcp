@@ -13,6 +13,7 @@
 
 export {
   normalizePodRoot,
+  podScopedUrlOrUndefined,
   requirePodScopedUrl,
   type SolidMcpConfig,
   writesEnabled,
@@ -20,7 +21,6 @@ export {
 export {
   listContainer,
   type PodChild,
-  RdfFetchError,
   type ReadRdfResult,
   type ReadResult,
   readRdf,

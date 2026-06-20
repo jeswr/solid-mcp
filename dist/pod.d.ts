@@ -1,12 +1,3 @@
-/**
- * Pod operations over the injected authenticated `fetch`, all pod-scope-guarded.
- *
- * RDF discipline (house rule): we NEVER hand-build or hand-parse RDF. Container
- * listings are parsed via `@jeswr/fetch-rdf` (`fetchRdf`) + `@solid/object`
- * (`ContainerDataset`), and any RDF representation we hand back to a client is
- * re-serialised with `n3.Writer` over the parsed quads.
- */
-import { RdfFetchError } from "@jeswr/fetch-rdf";
 import { type SolidMcpConfig } from "./auth.js";
 /** A typed child of an LDP container, mapped to absolute URLs. */
 export interface PodChild {
@@ -65,6 +56,14 @@ export interface SearchOptions {
  * List the children of an LDP container at `url` (pod-scoped). Parses the
  * container listing via fetch-rdf + @solid/object's ContainerDataset; maps each
  * child's (possibly relative) id to an absolute URL.
+ *
+ * SECURITY: a container listing is UNTRUSTED data — a malicious or compromised
+ * pod could put an `ldp:contains` entry pointing at an external origin. Every
+ * resolved child URL is therefore re-validated against the pod scope, and any
+ * child that resolves OUTSIDE the pod is DROPPED (fail-closed). This is what
+ * stops a poisoned listing from making a downstream `solid_read` / `solid_search`
+ * fetch an arbitrary URL (SSRF). Callers can rely on every returned `child.url`
+ * being in-pod.
  */
 export declare function listContainer(config: SolidMcpConfig, url: string): Promise<PodChild[]>;
 /**
@@ -103,5 +102,4 @@ export declare function writeResource(config: SolidMcpConfig, url: string, conte
     url: string;
     etag?: string;
 }>;
-export { RdfFetchError };
 //# sourceMappingURL=pod.d.ts.map

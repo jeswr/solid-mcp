@@ -9,7 +9,7 @@
  *
  * @packageDocumentation
  */
-export { normalizePodRoot, requirePodScopedUrl, type SolidMcpConfig, writesEnabled, } from "./auth.js";
-export { listContainer, type PodChild, RdfFetchError, type ReadRdfResult, type ReadResult, readRdf, readResource, type SearchMatch, type SearchOptions, search, writeResource, } from "./pod.js";
+export { normalizePodRoot, podScopedUrlOrUndefined, requirePodScopedUrl, type SolidMcpConfig, writesEnabled, } from "./auth.js";
+export { listContainer, type PodChild, type ReadRdfResult, type ReadResult, readRdf, readResource, type SearchMatch, type SearchOptions, search, writeResource, } from "./pod.js";
 export { createSolidMcpServer } from "./server.js";
 //# sourceMappingURL=index.d.ts.map

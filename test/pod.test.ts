@@ -2,7 +2,22 @@
 import { describe, expect, it } from "vitest";
 import type { SolidMcpConfig } from "../src/auth.js";
 import { listContainer, readRdf, readResource, search, writeResource } from "../src/pod.js";
-import { containerTurtle, makeFakePod } from "./fake-pod.js";
+import { containerTurtle, makeFakePod, poisonedContainerTurtle } from "./fake-pod.js";
+
+/** Wrap a fetch to record every requested URL (to assert an SSRF target is NOT hit). */
+function recordingFetch(inner: typeof globalThis.fetch): {
+  fetch: typeof globalThis.fetch;
+  urls: string[];
+} {
+  const urls: string[] = [];
+  const wrapped = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    urls.push(u);
+    return inner(input, init);
+  }) as typeof globalThis.fetch;
+  return { fetch: wrapped, urls };
+}
 
 const POD = "https://alice.example/pod/";
 
@@ -43,6 +58,36 @@ describe("listContainer", () => {
     await expect(listContainer(cfg(pod.fetch), "https://evil.example/")).rejects.toThrow(
       /pod-scope violation/,
     );
+  });
+
+  it("DROPS a poisoned ldp:contains entry that points outside the pod (SSRF)", async () => {
+    // The container lists an in-pod child AND an external child — the latter must
+    // be dropped from the returned listing (fail-closed).
+    const pod = makeFakePod({
+      [POD]: {
+        contentType: "text/turtle",
+        body: poisonedContainerTurtle(POD, [`${POD}ok.ttl`, "https://evil.example/secret"]),
+      },
+    });
+    const children = await listContainer(cfg(pod.fetch), POD);
+    const urls = children.map((c) => c.url);
+    expect(urls).toContain(`${POD}ok.ttl`);
+    expect(urls).not.toContain("https://evil.example/secret");
+    expect(urls.every((u) => u.startsWith(POD))).toBe(true);
+  });
+
+  it("DROPS a poisoned same-origin entry that escapes the pod root", async () => {
+    const pod = makeFakePod({
+      [POD]: {
+        contentType: "text/turtle",
+        body: poisonedContainerTurtle(POD, [
+          `${POD}ok.ttl`,
+          "https://alice.example/other-pod/leak.ttl",
+        ]),
+      },
+    });
+    const urls = (await listContainer(cfg(pod.fetch), POD)).map((c) => c.url);
+    expect(urls).toEqual([`${POD}ok.ttl`]);
   });
 });
 
@@ -219,6 +264,43 @@ describe("search", () => {
     await expect(search(cfg(pod.fetch), "x", { scope: "https://evil.example/" })).rejects.toThrow(
       /pod-scope violation/,
     );
+  });
+
+  it("NEVER fetches an external URL listed in a poisoned container (SSRF)", async () => {
+    const pod = makeFakePod({
+      [POD]: {
+        contentType: "text/turtle",
+        body: poisonedContainerTurtle(POD, [`${POD}note.ttl`, "https://evil.example/exfil.ttl"]),
+      },
+      [`${POD}note.ttl`]: { contentType: "text/turtle", body: "" },
+      // If the guard failed, search would GET this — its presence would be the bug.
+      "https://evil.example/exfil.ttl": { contentType: "text/turtle", body: "" },
+    });
+    const rec = recordingFetch(pod.fetch);
+    await search(cfg(rec.fetch), "exfil");
+    expect(rec.urls).not.toContain("https://evil.example/exfil.ttl");
+    expect(rec.urls.every((u) => u.startsWith(POD))).toBe(true);
+  });
+
+  it("NEVER fetches an external type-index pointed to by a malicious profile (SSRF)", async () => {
+    const webId = `${POD}profile/card#me`;
+    const Solid = "http://www.w3.org/ns/solid/terms#";
+    // The profile points publicTypeIndex at an EXTERNAL origin — must not be fetched.
+    const profile = `<${webId}> <${Solid}publicTypeIndex> <https://evil.example/typeIndex.ttl> .`;
+    const pod = makeFakePod({
+      [webId]: { contentType: "text/turtle", body: profile },
+      "https://evil.example/typeIndex.ttl": {
+        contentType: "text/turtle",
+        body: `<#r> <${Solid}instanceContainer> <https://evil.example/loot/> .`,
+      },
+      [POD]: { contentType: "text/turtle", body: containerTurtle(POD, []) },
+    });
+    const rec = recordingFetch(pod.fetch);
+    await search(cfg(rec.fetch, { webId }), "anything");
+    expect(rec.urls).not.toContain("https://evil.example/typeIndex.ttl");
+    // The WebID profile itself IS fetched (configured identity), but nothing on evil.example.
+    expect(rec.urls.some((u) => u.startsWith("https://evil.example"))).toBe(false);
+    expect(rec.urls).toContain(webId);
   });
 
   it("uses Type-Index hints when a webId is configured (best-effort)", async () => {

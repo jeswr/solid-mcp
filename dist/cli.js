@@ -52,6 +52,13 @@ function requirePodScopedUrl(config, url) {
   }
   return canonical;
 }
+function podScopedUrlOrUndefined(config, url) {
+  try {
+    return requirePodScopedUrl(config, url);
+  } catch {
+    return void 0;
+  }
+}
 function writesEnabled(config) {
   return config.readOnly === false;
 }
@@ -279,7 +286,16 @@ async function listContainer(config, url) {
   const container = new ContainerDataset(dataset, DataFactory).container;
   const children = [];
   for (const r of container?.contains ?? []) {
-    const childUrl = new URL(r.id, target).toString();
+    let resolvedChild;
+    try {
+      resolvedChild = new URL(r.id, target).toString();
+    } catch {
+      continue;
+    }
+    const childUrl = podScopedUrlOrUndefined(config, resolvedChild);
+    if (childUrl === void 0) {
+      continue;
+    }
     const child = {
       url: childUrl,
       name: r.name,
@@ -434,9 +450,13 @@ function hasRdfExtension(url) {
   return RDF_EXTENSIONS.some((ext) => path.endsWith(ext));
 }
 async function literalMatch(config, url, q) {
+  const target = podScopedUrlOrUndefined(config, url);
+  if (target === void 0) {
+    return void 0;
+  }
   let dataset;
   try {
-    ({ dataset } = await fetchRdf(url, { fetch: config.fetch }));
+    ({ dataset } = await fetchRdf(target, { fetch: config.fetch }));
   } catch {
     return void 0;
   }
@@ -453,21 +473,27 @@ async function literalMatch(config, url, q) {
 async function typeIndexContainers(config) {
   const webId = config.webId;
   if (!webId) return [];
-  const Solid = "http://www.w3.org/ns/solid/terms#";
+  const solidNs = "http://www.w3.org/ns/solid/terms#";
   const out = /* @__PURE__ */ new Set();
   const { dataset: profile } = await fetchRdf(webId, { fetch: config.fetch });
   const indexes = /* @__PURE__ */ new Set();
-  for (const p of [`${Solid}publicTypeIndex`, `${Solid}privateTypeIndex`]) {
+  for (const p of [`${solidNs}publicTypeIndex`, `${solidNs}privateTypeIndex`]) {
     for (const quad of profile.getQuads(null, DataFactory.namedNode(p), null, null)) {
-      if (quad.object.termType === "NamedNode") indexes.add(quad.object.value);
+      if (quad.object.termType === "NamedNode") {
+        const scoped = podScopedUrlOrUndefined(config, quad.object.value);
+        if (scoped !== void 0) indexes.add(scoped);
+      }
     }
   }
   for (const index of indexes) {
     try {
       const { dataset: ti } = await fetchRdf(index, { fetch: config.fetch });
-      for (const p of [`${Solid}instance`, `${Solid}instanceContainer`]) {
+      for (const p of [`${solidNs}instance`, `${solidNs}instanceContainer`]) {
         for (const quad of ti.getQuads(null, DataFactory.namedNode(p), null, null)) {
-          if (quad.object.termType === "NamedNode") out.add(quad.object.value);
+          if (quad.object.termType === "NamedNode") {
+            const scoped = podScopedUrlOrUndefined(config, quad.object.value);
+            if (scoped !== void 0) out.add(scoped);
+          }
         }
       }
     } catch {
