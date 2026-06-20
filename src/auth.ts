@@ -133,6 +133,65 @@ export function podScopedUrlOrUndefined(
   }
 }
 
+/** Max redirect hops a pod-scoped fetch will follow before giving up. */
+const MAX_REDIRECT_HOPS = 10;
+
+/**
+ * Wrap an authenticated `fetch` into a POD-SCOPED fetch that handles redirects
+ * MANUALLY and validates every hop against the pod scope.
+ *
+ * WHY: validating only the initial URL is not enough — `fetch` follows 3xx
+ * redirects by default, so a poisoned in-pod resource could `302` to an external
+ * (or internal-network) target and the underlying fetch would happily follow it,
+ * re-opening the SSRF hole that the URL filter closed. This wrapper forces
+ * `redirect: "manual"`, and on each 3xx it resolves the `Location` against the
+ * current URL and requires the result to be WITHIN the pod before following
+ * (fail-closed: a redirect that leaves the pod throws a pod-scope violation).
+ *
+ * The first request's URL is NOT re-validated here (callers already pass a
+ * scope-checked target); only the redirect targets are checked. Use this for every
+ * fetch that touches pod data; the one deliberate exception is the off-pod WebID
+ * profile fetch (the configured identity), which uses the raw fetch.
+ */
+export function scopedFetch(config: { podRoot: string; fetch: typeof fetch }): typeof fetch {
+  const root = normalizePodRoot(config.podRoot);
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    let currentUrl =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    // Preserve the caller's init but force manual redirect handling.
+    let currentInit: RequestInit = { ...init, redirect: "manual" };
+    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+      const res = await config.fetch(currentUrl, currentInit);
+      // 3xx with a Location → a redirect we must vet before following.
+      const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
+      if (!isRedirect) {
+        return res;
+      }
+      const location = res.headers.get("location") ?? "";
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        throw new Error(
+          `pod-scope violation: unparseable redirect Location ${JSON.stringify(location)} from ${currentUrl}.`,
+        );
+      }
+      if (!nextUrl.startsWith(root)) {
+        throw new Error(
+          `pod-scope violation: ${currentUrl} redirected to ${nextUrl}, which is outside the pod ` +
+            `root ${root} (redirect-based SSRF guard). The redirect was not followed.`,
+        );
+      }
+      currentUrl = nextUrl;
+      // After the first hop, drop a body (a 303/redirect-to-GET); keep method GET
+      // for safety on subsequent hops to avoid replaying a write to a new URL.
+      currentInit = { ...currentInit, method: "GET", body: undefined, redirect: "manual" };
+    }
+    throw new Error(`too many redirects (>${MAX_REDIRECT_HOPS}) for a pod-scoped fetch.`);
+  };
+  return wrapped as typeof fetch;
+}
+
 /** True when writes are enabled (the caller explicitly opted out of read-only). */
 export function writesEnabled(config: SolidMcpConfig): boolean {
   return config.readOnly === false;

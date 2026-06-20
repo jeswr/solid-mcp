@@ -14,6 +14,7 @@ import {
   podScopedUrlOrUndefined,
   requirePodScopedUrl,
   type SolidMcpConfig,
+  scopedFetch,
   writesEnabled,
 } from "./auth.js";
 
@@ -127,7 +128,7 @@ function bareMediaType(header: string | null): string | undefined {
  */
 export async function listContainer(config: SolidMcpConfig, url: string): Promise<PodChild[]> {
   const target = requirePodScopedUrl(config, url);
-  const { dataset } = await fetchRdf(target, { fetch: config.fetch });
+  const { dataset } = await fetchRdf(target, { fetch: scopedFetch(config) });
   const container = new ContainerDataset(dataset, DataFactory).container;
   const children: PodChild[] = [];
   for (const r of container?.contains ?? []) {
@@ -166,7 +167,7 @@ export async function listContainer(config: SolidMcpConfig, url: string): Promis
  */
 export async function readResource(config: SolidMcpConfig, url: string): Promise<ReadResult> {
   const target = requirePodScopedUrl(config, url);
-  const res = await config.fetch(target, { method: "GET" });
+  const res = await scopedFetch(config)(target, { method: "GET" });
   if (res.status === 401 || res.status === 403) {
     throw new Error(
       `unauthenticated/forbidden (${res.status}) reading ${target} — supply an authenticated fetch ` +
@@ -196,7 +197,7 @@ export async function readResource(config: SolidMcpConfig, url: string): Promise
  */
 export async function readRdf(config: SolidMcpConfig, url: string): Promise<ReadRdfResult> {
   const target = requirePodScopedUrl(config, url);
-  const { dataset } = await fetchRdf(target, { fetch: config.fetch });
+  const { dataset } = await fetchRdf(target, { fetch: scopedFetch(config) });
   const turtle = await serializeTurtle(dataset);
   return { turtle, dataset };
 }
@@ -373,7 +374,7 @@ async function literalMatch(
   }
   let dataset: import("n3").Store;
   try {
-    ({ dataset } = await fetchRdf(target, { fetch: config.fetch }));
+    ({ dataset } = await fetchRdf(target, { fetch: scopedFetch(config) }));
   } catch {
     return undefined;
   }
@@ -422,7 +423,9 @@ async function typeIndexContainers(config: SolidMcpConfig): Promise<string[]> {
   }
   for (const index of indexes) {
     try {
-      const { dataset: ti } = await fetchRdf(index, { fetch: config.fetch });
+      // The index URL is in-pod (validated above); use scopedFetch so a redirect
+      // out of the pod is still blocked (redirect-based SSRF guard).
+      const { dataset: ti } = await fetchRdf(index, { fetch: scopedFetch(config) });
       for (const p of [`${solidNs}instance`, `${solidNs}instanceContainer`]) {
         for (const quad of ti.getQuads(null, DataFactory.namedNode(p), null, null)) {
           if (quad.object.termType === "NamedNode") {
@@ -454,11 +457,21 @@ export async function writeResource(
     throw new Error("write disabled: server is read-only (set readOnly:false to enable writes).");
   }
   const target = requirePodScopedUrl(config, url);
+  // Manual redirect: never replay a write body to a redirect target (a 3xx on a
+  // PUT could steer the write out of the pod — redirect-based SSRF guard). Treat
+  // any redirect on a write as a failure rather than following it.
   const res = await config.fetch(target, {
     method: "PUT",
     headers: { "content-type": contentType },
     body: content,
+    redirect: "manual",
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(
+      `refusing to follow a redirect (${res.status}) on a write to ${target} ` +
+        "(a redirected write could escape the pod — SSRF guard).",
+    );
+  }
   if (res.status === 401 || res.status === 403) {
     throw new Error(
       `unauthenticated/forbidden (${res.status}) writing ${target} — supply an authenticated fetch ` +

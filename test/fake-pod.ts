@@ -12,6 +12,10 @@ export interface FakeResource {
   body: string;
   status?: number;
   etag?: string;
+  /** If set, the GET returns a 30x to this Location (to model redirect SSRF). */
+  redirectTo?: string;
+  /** The redirect status to use with `redirectTo` (default 302). */
+  redirectStatus?: number;
 }
 
 export interface PutRecord {
@@ -49,6 +53,15 @@ export function makeFakePod(resources: Record<string, FakeResource>): FakePod {
     const res = map[url];
     if (!res) {
       return new Response("not found", { status: 404, statusText: "Not Found" });
+    }
+    // Model a redirect (3xx + Location) so the scopedFetch redirect guard can be
+    // exercised. The caller (scopedFetch) requests redirect:"manual" and inspects
+    // the Location itself, so we just return the 30x response verbatim.
+    if (res.redirectTo) {
+      return new Response(null, {
+        status: res.redirectStatus ?? 302,
+        headers: { location: res.redirectTo },
+      });
     }
     const status = res.status ?? 200;
     const headers = new Headers({ "content-type": res.contentType });

@@ -50,6 +50,39 @@ function podScopedUrlOrUndefined(config, url) {
     return void 0;
   }
 }
+var MAX_REDIRECT_HOPS = 10;
+function scopedFetch(config) {
+  const root = normalizePodRoot(config.podRoot);
+  const wrapped = async (input, init) => {
+    let currentUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    let currentInit = { ...init, redirect: "manual" };
+    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+      const res = await config.fetch(currentUrl, currentInit);
+      const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
+      if (!isRedirect) {
+        return res;
+      }
+      const location = res.headers.get("location") ?? "";
+      let nextUrl;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        throw new Error(
+          `pod-scope violation: unparseable redirect Location ${JSON.stringify(location)} from ${currentUrl}.`
+        );
+      }
+      if (!nextUrl.startsWith(root)) {
+        throw new Error(
+          `pod-scope violation: ${currentUrl} redirected to ${nextUrl}, which is outside the pod root ${root} (redirect-based SSRF guard). The redirect was not followed.`
+        );
+      }
+      currentUrl = nextUrl;
+      currentInit = { ...currentInit, method: "GET", body: void 0, redirect: "manual" };
+    }
+    throw new Error(`too many redirects (>${MAX_REDIRECT_HOPS}) for a pod-scoped fetch.`);
+  };
+  return wrapped;
+}
 function writesEnabled(config) {
   return config.readOnly === false;
 }
@@ -273,7 +306,7 @@ function bareMediaType(header) {
 }
 async function listContainer(config, url) {
   const target = requirePodScopedUrl(config, url);
-  const { dataset } = await fetchRdf(target, { fetch: config.fetch });
+  const { dataset } = await fetchRdf(target, { fetch: scopedFetch(config) });
   const container = new ContainerDataset(dataset, DataFactory).container;
   const children = [];
   for (const r of container?.contains ?? []) {
@@ -302,7 +335,7 @@ async function listContainer(config, url) {
 }
 async function readResource(config, url) {
   const target = requirePodScopedUrl(config, url);
-  const res = await config.fetch(target, { method: "GET" });
+  const res = await scopedFetch(config)(target, { method: "GET" });
   if (res.status === 401 || res.status === 403) {
     throw new Error(
       `unauthenticated/forbidden (${res.status}) reading ${target} \u2014 supply an authenticated fetch (the Solid-MCP server holds no credentials of its own).`
@@ -326,7 +359,7 @@ async function readResource(config, url) {
 }
 async function readRdf(config, url) {
   const target = requirePodScopedUrl(config, url);
-  const { dataset } = await fetchRdf(target, { fetch: config.fetch });
+  const { dataset } = await fetchRdf(target, { fetch: scopedFetch(config) });
   const turtle = await serializeTurtle(dataset);
   return { turtle, dataset };
 }
@@ -447,7 +480,7 @@ async function literalMatch(config, url, q) {
   }
   let dataset;
   try {
-    ({ dataset } = await fetchRdf(target, { fetch: config.fetch }));
+    ({ dataset } = await fetchRdf(target, { fetch: scopedFetch(config) }));
   } catch {
     return void 0;
   }
@@ -478,7 +511,7 @@ async function typeIndexContainers(config) {
   }
   for (const index of indexes) {
     try {
-      const { dataset: ti } = await fetchRdf(index, { fetch: config.fetch });
+      const { dataset: ti } = await fetchRdf(index, { fetch: scopedFetch(config) });
       for (const p of [`${solidNs}instance`, `${solidNs}instanceContainer`]) {
         for (const quad of ti.getQuads(null, DataFactory.namedNode(p), null, null)) {
           if (quad.object.termType === "NamedNode") {
@@ -500,8 +533,14 @@ async function writeResource(config, url, content, contentType2) {
   const res = await config.fetch(target, {
     method: "PUT",
     headers: { "content-type": contentType2 },
-    body: content
+    body: content,
+    redirect: "manual"
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(
+      `refusing to follow a redirect (${res.status}) on a write to ${target} (a redirected write could escape the pod \u2014 SSRF guard).`
+    );
+  }
   if (res.status === 401 || res.status === 403) {
     throw new Error(
       `unauthenticated/forbidden (${res.status}) writing ${target} \u2014 supply an authenticated fetch with write access.`

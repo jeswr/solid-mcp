@@ -75,6 +75,27 @@ export declare function requirePodScopedUrl(config: {
 export declare function podScopedUrlOrUndefined(config: {
     podRoot: string;
 }, url: string): string | undefined;
+/**
+ * Wrap an authenticated `fetch` into a POD-SCOPED fetch that handles redirects
+ * MANUALLY and validates every hop against the pod scope.
+ *
+ * WHY: validating only the initial URL is not enough — `fetch` follows 3xx
+ * redirects by default, so a poisoned in-pod resource could `302` to an external
+ * (or internal-network) target and the underlying fetch would happily follow it,
+ * re-opening the SSRF hole that the URL filter closed. This wrapper forces
+ * `redirect: "manual"`, and on each 3xx it resolves the `Location` against the
+ * current URL and requires the result to be WITHIN the pod before following
+ * (fail-closed: a redirect that leaves the pod throws a pod-scope violation).
+ *
+ * The first request's URL is NOT re-validated here (callers already pass a
+ * scope-checked target); only the redirect targets are checked. Use this for every
+ * fetch that touches pod data; the one deliberate exception is the off-pod WebID
+ * profile fetch (the configured identity), which uses the raw fetch.
+ */
+export declare function scopedFetch(config: {
+    podRoot: string;
+    fetch: typeof fetch;
+}): typeof fetch;
 /** True when writes are enabled (the caller explicitly opted out of read-only). */
 export declare function writesEnabled(config: SolidMcpConfig): boolean;
 //# sourceMappingURL=auth.d.ts.map

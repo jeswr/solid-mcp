@@ -160,6 +160,44 @@ describe("readResource", () => {
       /pod-scope violation/,
     );
   });
+
+  it("BLOCKS an in-pod URL that redirects to an external target (redirect SSRF)", async () => {
+    const pod = makeFakePod({
+      [`${POD}redir`]: {
+        contentType: "text/plain",
+        body: "",
+        redirectTo: "https://evil.example/loot",
+      },
+    });
+    const rec = recordingFetch(pod.fetch);
+    await expect(readResource(cfg(rec.fetch), `${POD}redir`)).rejects.toThrow(
+      /pod-scope violation.*redirected/s,
+    );
+    // The external target must never be requested.
+    expect(rec.urls).not.toContain("https://evil.example/loot");
+  });
+
+  it("FOLLOWS an in-pod redirect to another in-pod resource", async () => {
+    const pod = makeFakePod({
+      [`${POD}old`]: { contentType: "text/plain", body: "", redirectTo: `${POD}new` },
+      [`${POD}new`]: { contentType: "text/plain", body: "moved here" },
+    });
+    const r = await readResource(cfg(pod.fetch), `${POD}old`);
+    expect(r.text).toBe("moved here");
+  });
+
+  it("BLOCKS a same-origin redirect that escapes the pod root", async () => {
+    const pod = makeFakePod({
+      [`${POD}r`]: {
+        contentType: "text/plain",
+        body: "",
+        redirectTo: "https://alice.example/other/secret",
+      },
+    });
+    await expect(readResource(cfg(pod.fetch), `${POD}r`)).rejects.toThrow(
+      /pod-scope violation.*redirected/s,
+    );
+  });
 });
 
 describe("readRdf", () => {
