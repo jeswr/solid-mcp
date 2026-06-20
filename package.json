@@ -1,106 +1,81 @@
 {
   "name": "@jeswr/solid-mcp",
-  "version": "0.0.0-development",
-  "description": "Anthropic Model Context Protocol (MCP) integration for the Solid protocol",
-  "main": "dist/index.js",
-  "types": "dist/index.d.js",
-  "directories": {
-    "lib": "lib"
+  "version": "0.1.0",
+  "description": "A Model Context Protocol (MCP) server that exposes a Solid pod to MCP clients (Claude Desktop, etc.) as Resources + Tools (list / read / search / write) over an injectable authenticated Solid fetch. Read-only by default; pod-scope-guarded. Experimental, AI-agent-generated.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "solid-mcp": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "test:coverage": "npm test -- --coverage",
-    "test:badges": "npm run test:coverage  && jest-coverage-badges",
-    "test": "jest",
-    "test:integration": "jest __tests__/integration",
-    "test:unit": "jest __tests__/main-test.ts",
-    "lint": "eslint lib/* __tests__/* --ext .ts",
-    "lint:fix": "eslint lib/* __tests__/* --ext .ts --fix",
-    "build": "tsc",
-    "prepare": "tsc",
-    "semantic-release": "semantic-release",
-    "example": "ts-node lib/examples/basic-usage.ts",
-    "example:mcp-client": "ts-node lib/examples/mcp-client-example.ts",
-    "example:mcp-server": "ts-node lib/examples/mcp-server-example.ts",
-    "example:mcp-adapter": "ts-node lib/examples/mcp-adapter-example.ts"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/jeswr/solid-mcp"
+    "build:deps": "node scripts/build-deps.mjs",
+    "build": "node scripts/build-dist.mjs",
+    "build:dev": "npm run build:deps && tsc -p tsconfig.build.json",
+    "check:dist": "node scripts/check-dist-fresh.mjs",
+    "check:lockfile-transport": "node scripts/check-lockfile-transport.mjs",
+    "typecheck": "npm run build:deps && tsc -p tsconfig.json --noEmit",
+    "lint": "biome check src test scripts && npm run check:lockfile-transport",
+    "lint:fix": "biome check --write src test scripts",
+    "test": "npm run build:deps && vitest run",
+    "test:coverage": "npm run build:deps && vitest run --coverage",
+    "prepare": "npm run build"
   },
   "keywords": [
-    "solid",
     "mcp",
-    "anthropic",
-    "claude",
     "model-context-protocol",
-    "linked-data",
+    "solid",
+    "ldp",
+    "pod",
     "rdf",
-    "semantic-web"
+    "linked-data",
+    "agent",
+    "claude",
+    "ai"
   ],
-  "author": "Jesse Wright <https://github.com/jeswr/>",
+  "author": "Jesse Wright <jwrightwho@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeswr/solid-mcp.git"
+  },
   "bugs": {
     "url": "https://github.com/jeswr/solid-mcp/issues"
   },
-  "homepage": "https://github.com/jeswr/solid-mcp/README.md",
-  "devDependencies": {
-    "@types/jest": "^30.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.61.1",
-    "@typescript-eslint/parser": "^8.61.0",
-    "eslint": "^10.5.0",
-    "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.32.0",
-    "jest": "^30.4.2",
-    "pre-commit": "^2.0.0",
-    "semantic-release": "^25.0.5",
-    "ts-jest": "^29.4.11",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
-  },
+  "homepage": "https://github.com/jeswr/solid-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "cross-fetch": "^4.1.0",
-    "rdf-parse": "^5.0.0"
+    "@rdfjs/types": "^2.0.1",
+    "@rdfjs/wrapper": "^0.34.0",
+    "@solid/object": "^0.6.0",
+    "content-type": "^1.0.5",
+    "jsonld-streaming-parser": "^5.0.0",
+    "n3": "^2.0.4",
+    "zod": "^3.24.2"
   },
-  "jest": {
-    "preset": "ts-jest",
-    "collectCoverage": true,
-    "coverageReporters": [
-      "json-summary",
-      "text",
-      "lcov"
-    ],
-    "coverageThreshold": {
-      "global": {
-        "branches": 20,
-        "functions": 40,
-        "lines": 35,
-        "statements": 35
-      }
-    }
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@jeswr/fetch-rdf": "github:jeswr/fetch-rdf#a8359a3764cb6b3c763e09ea211542a5dc7edc33",
+    "@types/n3": "^1.16.0",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   },
-  "pre-commit": [
-    "lint",
-    "build",
-    "test"
-  ],
-  "release": {
-    "branches": [
-      "main",
-      "+([0-9])?(.{+([0-9]),x}).x",
-      "next",
-      {
-        "name": "alpha",
-        "prerelease": true
-      },
-      {
-        "name": "beta",
-        "prerelease": true
-      }
-    ]
+  "engines": {
+    "node": ">=20"
   },
   "publishConfig": {
     "access": "public"

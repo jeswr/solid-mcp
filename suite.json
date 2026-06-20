@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jeswr/full-solid-ecosystem/main/tracking/schema/suite.schema.json",
+  "id": "solid-mcp",
+  "kind": "package",
+  "name": "Solid MCP Server",
+  "repo": "https://github.com/jeswr/solid-mcp",
+  "category": "integration",
+  "maturity": "prototype",
+  "visibility": "public",
+  "stack": {
+    "lang": "TypeScript (ESM, NodeNext)",
+    "mcp": "@modelcontextprotocol/sdk ^1.29.0 (McpServer + StdioServerTransport, modern register API)",
+    "rdf": "n3 ^2.x",
+    "rdf-wrapper": "@rdfjs/wrapper ^0.34.x",
+    "solid-object": "@solid/object ^0.6.x (ContainerDataset for ldp:contains)",
+    "fetch-rdf": "@jeswr/fetch-rdf (git: jeswr/fetch-rdf#a8359a3; inlined into dist)",
+    "schema": "zod ^3.x (tool inputSchema raw shapes)",
+    "test": "vitest ^2.x",
+    "lint": "@biomejs/biome ^2.x",
+    "node": ">=20"
+  },
+  "dependsOn": ["fetch-rdf"],
+  "federation": {
+    "sectors": [],
+    "membershipTodo": "Agentic infrastructure (not an app, no federation membership of its own — it is agent-access glue). An MCP (Model Context Protocol) server that exposes a Solid pod to MCP clients (Claude Desktop, etc.). It maps pod URLs 1:1 to MCP Resources and offers four pod-scope-guarded Tools — solid_list, solid_read, solid_search, solid_write — over an injectable authenticated Solid-OIDC/DPoP fetch (the server holds no bespoke crypto). Read-only by default; writes are opt-in (readOnly:false). M1 = stdio transport. The pod-scope guard is the SSRF/scope boundary that stops an agent reaching arbitrary origins. Typed data uses the suite's RDF shapes so an agent reads the same shapes the suite apps write."
+  }
+}

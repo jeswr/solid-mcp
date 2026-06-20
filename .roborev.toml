@@ -1,0 +1,10 @@
+# roborev config — managed by the solid-app-suite master repo.
+# Edit templates/sub-repo/.roborev.toml in the master, then re-sync.
+
+agent = "codex"
+model = "gpt-5.5"
+
+review_min_severity = "low"
+
+reuse_review_session = true
+reuse_review_session_lookback = 5
