@@ -62,7 +62,7 @@
     "content-type": "^1.0.5",
     "jsonld-streaming-parser": "^5.0.0",
     "n3": "^2.0.4",
-    "zod": "^3.24.2"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
