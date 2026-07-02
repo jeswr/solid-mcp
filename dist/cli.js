@@ -390,56 +390,67 @@ var RDF_MEDIA_TYPES = /* @__PURE__ */ new Set([
   "application/n-quads",
   "application/trig"
 ]);
-async function search(config, query, options = {}) {
-  const q = (query ?? "").trim().toLowerCase();
-  if (q.length === 0) {
-    return [];
-  }
-  const maxDepth = options.maxDepth ?? 4;
-  const maxResources = options.maxResources ?? 500;
-  const scope = requirePodScopedUrl(config, options.scope ?? config.podRoot);
-  const byUrl = /* @__PURE__ */ new Map();
-  const addMatch = (m, rank) => {
-    const existing = byUrl.get(m.url);
-    if (!existing || rank < (rankOf.get(m.url) ?? Number.POSITIVE_INFINITY)) {
-      byUrl.set(m.url, m);
-      rankOf.set(m.url, rank);
+var RankedMatches = class {
+  byUrl = /* @__PURE__ */ new Map();
+  rankOf = /* @__PURE__ */ new Map();
+  /** Record `m` at `rank`; a lower rank overrides a previously-stored weaker one. */
+  add(m, rank) {
+    if (rank < (this.rankOf.get(m.url) ?? Number.POSITIVE_INFINITY)) {
+      this.byUrl.set(m.url, m);
+      this.rankOf.set(m.url, rank);
     }
-  };
-  const rankOf = /* @__PURE__ */ new Map();
-  const seedContainers = /* @__PURE__ */ new Set([scope]);
-  if (config.webId) {
+  }
+  /** All matches, strongest (lowest rank) first. */
+  ranked() {
+    return [...this.byUrl.values()].sort(
+      (a, b) => (this.rankOf.get(a.url) ?? 9) - (this.rankOf.get(b.url) ?? 9)
+    );
+  }
+};
+async function seedContainers(config, q, scope, matches) {
+  const seeds = /* @__PURE__ */ new Set([scope]);
+  if (!config.webId) return seeds;
+  let hints;
+  try {
+    hints = await typeIndexContainers(config);
+  } catch {
+    return seeds;
+  }
+  for (const hint of hints) {
+    let scoped;
     try {
-      for (const hint of await typeIndexContainers(config)) {
-        try {
-          const scoped = requirePodScopedUrl(config, hint);
-          if (scoped.endsWith("/")) {
-            seedContainers.add(scoped);
-          } else {
-            const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
-            if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
-              addMatch({ url: scoped, name, snippet: "type-index instance" }, 0);
-            }
-          }
-        } catch {
-        }
-      }
+      scoped = requirePodScopedUrl(config, hint);
     } catch {
+      continue;
+    }
+    if (scoped.endsWith("/")) {
+      seeds.add(scoped);
+      continue;
+    }
+    const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
+    if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
+      matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
     }
   }
-  let visited = 0;
-  const seenContainers = /* @__PURE__ */ new Set();
-  const queue = [];
-  for (const c of seedContainers) {
-    queue.push({ url: c, depth: 0 });
+  return seeds;
+}
+async function matchChildLiteral(config, child, q, matches) {
+  if (!(isRdfLike(child.mimeType) || hasRdfExtension(child.url))) return;
+  const literalHit = await literalMatch(config, child.url, q);
+  if (literalHit) {
+    matches.add({ url: child.url, name: child.name, snippet: `literal: ${literalHit}` }, 2);
   }
-  while (queue.length > 0) {
-    if (visited >= maxResources) break;
+}
+async function scanContainers(config, q, seeds, maxDepth, maxResources, matches) {
+  let visited = 0;
+  const seen = /* @__PURE__ */ new Set();
+  const queue = [...seeds].map((url) => ({ url, depth: 0 }));
+  while (queue.length > 0 && visited < maxResources) {
     const next = queue.shift();
     if (!next) break;
     const { url, depth } = next;
-    if (seenContainers.has(url)) continue;
-    seenContainers.add(url);
+    if (seen.has(url)) continue;
+    seen.add(url);
     let children;
     try {
       children = await listContainer(config, url);
@@ -449,24 +460,29 @@ async function search(config, query, options = {}) {
     for (const child of children) {
       if (visited >= maxResources) break;
       visited++;
-      const nameLc = child.name.toLowerCase();
-      const urlLc = child.url.toLowerCase();
-      if (nameLc.includes(q) || urlLc.includes(q)) {
-        addMatch({ url: child.url, name: child.name, snippet: "name/url match" }, 1);
+      if (child.name.toLowerCase().includes(q) || child.url.toLowerCase().includes(q)) {
+        matches.add({ url: child.url, name: child.name, snippet: "name/url match" }, 1);
       }
       if (child.isContainer) {
-        if (depth + 1 <= maxDepth) {
-          queue.push({ url: child.url, depth: depth + 1 });
-        }
-      } else if (isRdfLike(child.mimeType) || hasRdfExtension(child.url)) {
-        const literalHit = await literalMatch(config, child.url, q);
-        if (literalHit) {
-          addMatch({ url: child.url, name: child.name, snippet: `literal: ${literalHit}` }, 2);
-        }
+        if (depth + 1 <= maxDepth) queue.push({ url: child.url, depth: depth + 1 });
+      } else {
+        await matchChildLiteral(config, child, q, matches);
       }
     }
   }
-  return [...byUrl.values()].sort((a, b) => (rankOf.get(a.url) ?? 9) - (rankOf.get(b.url) ?? 9));
+}
+async function search(config, query, options = {}) {
+  const q = (query ?? "").trim().toLowerCase();
+  if (q.length === 0) {
+    return [];
+  }
+  const maxDepth = options.maxDepth ?? 4;
+  const maxResources = options.maxResources ?? 500;
+  const scope = requirePodScopedUrl(config, options.scope ?? config.podRoot);
+  const matches = new RankedMatches();
+  const seeds = await seedContainers(config, q, scope, matches);
+  await scanContainers(config, q, seeds, maxDepth, maxResources, matches);
+  return matches.ranked();
 }
 function isRdfLike(mimeType) {
   if (!mimeType) return false;
