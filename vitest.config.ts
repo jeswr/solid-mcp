@@ -6,11 +6,8 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    // Vitest 4 flattened `poolOptions.forks.singleFork` to a top-level option.
+    singleFork: true,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "json"],
