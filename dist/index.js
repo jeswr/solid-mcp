@@ -554,6 +554,12 @@ var RDF_MEDIA = /* @__PURE__ */ new Set([
 function errorText(e) {
   return e instanceof Error ? e.message : String(e);
 }
+function toolText(text) {
+  return { content: [{ type: "text", text }] };
+}
+function toolError(e) {
+  return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+}
 function createSolidMcpServer(config) {
   const podRoot = normalizePodRoot(config.podRoot);
   const cfg = { ...config, podRoot };
@@ -631,9 +637,9 @@ function createSolidMcpServer(config) {
     async ({ container }) => {
       try {
         const children = await listContainer(cfg, container);
-        return { content: [{ type: "text", text: JSON.stringify(children, null, 2) }] };
+        return toolText(JSON.stringify(children, null, 2));
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
@@ -651,22 +657,17 @@ function createSolidMcpServer(config) {
         const bytes = await readResource(cfg, target);
         if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
           const { turtle } = await readRdf(cfg, target);
-          return { content: [{ type: "text", text: turtle }] };
+          return toolText(turtle);
         }
         if (bytes.text !== void 0) {
-          return { content: [{ type: "text", text: bytes.text }] };
+          return toolText(bytes.text);
         }
-        return {
-          content: [
-            {
-              type: "text",
-              text: `[binary ${bytes.contentType ?? "application/octet-stream"}, base64]
+        return toolText(
+          `[binary ${bytes.contentType ?? "application/octet-stream"}, base64]
 ${bytes.base64 ?? ""}`
-            }
-          ]
-        };
+        );
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
@@ -684,9 +685,9 @@ ${bytes.base64 ?? ""}`
     async ({ query, scope }) => {
       try {
         const matches = await search(cfg, query, scope ? { scope } : {});
-        return { content: [{ type: "text", text: JSON.stringify(matches, null, 2) }] };
+        return toolText(JSON.stringify(matches, null, 2));
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
@@ -704,28 +705,15 @@ ${bytes.base64 ?? ""}`
     },
     async ({ url, content, contentType: contentType2 }) => {
       if (!writesEnabled(cfg)) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: "write disabled: server is read-only (set readOnly:false to enable writes)."
-            }
-          ]
-        };
+        return toolError(
+          "write disabled: server is read-only (set readOnly:false to enable writes)."
+        );
       }
       try {
         const result = await writeResource(cfg, url, content, contentType2);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `wrote ${result.url}${result.etag ? ` (etag ${result.etag})` : ""}`
-            }
-          ]
-        };
+        return toolText(`wrote ${result.url}${result.etag ? ` (etag ${result.etag})` : ""}`);
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
