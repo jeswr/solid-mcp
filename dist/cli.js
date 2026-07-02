@@ -382,7 +382,7 @@ function serializeTurtle(dataset) {
     });
   });
 }
-var RDF_LIKE = /* @__PURE__ */ new Set([
+var RDF_MEDIA_TYPES = /* @__PURE__ */ new Set([
   "text/turtle",
   "application/x-turtle",
   "application/ld+json",
@@ -470,7 +470,7 @@ async function search(config, query, options = {}) {
 }
 function isRdfLike(mimeType) {
   if (!mimeType) return false;
-  return RDF_LIKE.has(mimeType.toLowerCase());
+  return RDF_MEDIA_TYPES.has(mimeType.toLowerCase());
 }
 var RDF_EXTENSIONS = [".ttl", ".jsonld", ".nt", ".nq", ".trig", ".n3"];
 function hasRdfExtension(url) {
@@ -565,14 +565,6 @@ async function writeResource(config, url, content, contentType2) {
 }
 
 // src/server.ts
-var RDF_MEDIA = /* @__PURE__ */ new Set([
-  "text/turtle",
-  "application/x-turtle",
-  "application/ld+json",
-  "application/n-triples",
-  "application/n-quads",
-  "application/trig"
-]);
 function isContainerUrl(url) {
   return url.endsWith("/");
 }
@@ -617,7 +609,7 @@ function createSolidMcpServer(config) {
         };
       }
       const bytes = await readResource(cfg, target);
-      if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
+      if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
         const { turtle } = await readRdf(cfg, target);
         return { contents: [{ uri: target, mimeType: "text/turtle", text: turtle }] };
       }
@@ -674,7 +666,7 @@ function createSolidMcpServer(config) {
       try {
         const target = requirePodScopedUrl(cfg, url);
         const bytes = await readResource(cfg, target);
-        if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
+        if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
           const { turtle } = await readRdf(cfg, target);
           return { content: [{ type: "text", text: turtle }] };
         }

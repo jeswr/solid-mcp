@@ -214,8 +214,15 @@ function serializeTurtle(dataset: import("n3").Store): Promise<string> {
   });
 }
 
-/** Lowercase media types that we will try to RDF-parse during a literal search. */
-const RDF_LIKE = new Set([
+/**
+ * The lowercase RDF media types this package recognises — the ONE reviewed list,
+ * shared by every RDF decision so they cannot drift:
+ *   - here (`isRdfLike`): which resources to RDF-parse during a literal search;
+ *   - in server.ts: which resources to render as Turtle in the read path.
+ * If a new RDF serialisation is supported, adding it here updates BOTH. Internal
+ * (not re-exported from index.ts), so it is not part of the public API surface.
+ */
+export const RDF_MEDIA_TYPES = new Set([
   "text/turtle",
   "application/x-turtle",
   "application/ld+json",
@@ -340,7 +347,7 @@ export async function search(
 /** Is the MIME type one we will attempt to RDF-parse for literal search? */
 function isRdfLike(mimeType: string | undefined): boolean {
   if (!mimeType) return false;
-  return RDF_LIKE.has(mimeType.toLowerCase());
+  return RDF_MEDIA_TYPES.has(mimeType.toLowerCase());
 }
 
 /** Known RDF file extensions (used when a listing omits the child mimeType). */
