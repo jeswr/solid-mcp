@@ -26,7 +26,7 @@
     "check:dist": "node scripts/check-dist-fresh.mjs",
     "check:lockfile-transport": "node scripts/check-lockfile-transport.mjs",
     "api:report": "npm run build && api-extractor run --local",
-    "api:check": "api-extractor run",
+    "api:check": "npm run build && api-extractor run",
     "typecheck": "npm run build:deps && tsc -p tsconfig.json --noEmit",
     "lint": "biome check src test scripts && npm run check:lockfile-transport",
     "lint:fix": "biome check --write src test scripts",
