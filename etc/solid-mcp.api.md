@@ -58,6 +58,11 @@ export function requirePodScopedUrl(config: {
 }, url: string): string;
 
 // @public
+export function requirePodScopedWriteUrl(config: {
+    podRoot: string;
+}, url: string): string;
+
+// @public
 export function search(config: SolidMcpConfig, query: string, options?: SearchOptions): Promise<SearchMatch[]>;
 
 // @public
