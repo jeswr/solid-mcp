@@ -280,20 +280,23 @@ async function seedContainers(
     return seeds; // No type index / unreadable profile — plain scan from scope.
   }
   for (const hint of hints) {
-    let scoped: string;
+    // Best-effort per hint: a hint outside the pod scope OR one whose direct
+    // instance segment is undecodable (malformed percent-encoding in an untrusted
+    // profile) is SKIPPED, never allowed to abort the whole search. The entire
+    // per-hint body is guarded, matching the original error boundary.
     try {
-      scoped = requirePodScopedUrl(config, hint); // only honour in-pod hints
+      const scoped = requirePodScopedUrl(config, hint); // only honour in-pod hints
+      if (isContainerUrl(scoped)) {
+        seeds.add(scoped);
+      } else {
+        // A direct instance file: match its url/name immediately.
+        const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
+        if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
+          matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
+        }
+      }
     } catch {
-      continue; // hint outside pod scope — ignore.
-    }
-    if (isContainerUrl(scoped)) {
-      seeds.add(scoped);
-      continue;
-    }
-    // A direct instance file: match its url/name immediately.
-    const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
-    if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
-      matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
+      // out-of-pod or undecodable hint — ignore (best-effort seeding).
     }
   }
   return seeds;
