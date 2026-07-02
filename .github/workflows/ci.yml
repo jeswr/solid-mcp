@@ -26,3 +26,5 @@ jobs:
         run: npm run build
       - name: Check committed dist/ is in sync
         run: npm run check:dist
+      - name: Check public API surface is in sync (api-extractor)
+        run: npm run api:check
