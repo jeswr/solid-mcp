@@ -39,6 +39,22 @@ function errorText(e: unknown): string {
 }
 
 /**
+ * The MCP tool-result envelope, defined ONCE. Every `solid_*` tool returns text
+ * content on success and `{ isError: true }` on failure (a tool NEVER throws out
+ * of its handler — the read-only refusal and every caught error both surface as
+ * an `isError` result). Wrapping this here keeps each handler as "do the work ->
+ * `toolText(...)`" / "on error -> `toolError(...)`".
+ */
+function toolText(text: string) {
+  return { content: [{ type: "text" as const, text }] };
+}
+
+/** The `isError` tool-result envelope. Accepts a caught value or a plain message. */
+function toolError(e: unknown) {
+  return { isError: true, content: [{ type: "text" as const, text: errorText(e) }] };
+}
+
+/**
  * Build an {@link McpServer} for the pod described by `config`. The config is
  * validated eagerly (podRoot must be an absolute http(s) container URL) so a
  * misconfiguration fails fast rather than at first request.
@@ -134,9 +150,9 @@ export function createSolidMcpServer(config: SolidMcpConfig): McpServer {
     async ({ container }) => {
       try {
         const children = await listContainer(cfg, container);
-        return { content: [{ type: "text" as const, text: JSON.stringify(children, null, 2) }] };
+        return toolText(JSON.stringify(children, null, 2));
       } catch (e) {
-        return { isError: true, content: [{ type: "text" as const, text: errorText(e) }] };
+        return toolError(e);
       }
     },
   );
@@ -156,21 +172,16 @@ export function createSolidMcpServer(config: SolidMcpConfig): McpServer {
         const bytes = await readResource(cfg, target);
         if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
           const { turtle } = await readRdf(cfg, target);
-          return { content: [{ type: "text" as const, text: turtle }] };
+          return toolText(turtle);
         }
         if (bytes.text !== undefined) {
-          return { content: [{ type: "text" as const, text: bytes.text }] };
+          return toolText(bytes.text);
         }
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `[binary ${bytes.contentType ?? "application/octet-stream"}, base64]\n${bytes.base64 ?? ""}`,
-            },
-          ],
-        };
+        return toolText(
+          `[binary ${bytes.contentType ?? "application/octet-stream"}, base64]\n${bytes.base64 ?? ""}`,
+        );
       } catch (e) {
-        return { isError: true, content: [{ type: "text" as const, text: errorText(e) }] };
+        return toolError(e);
       }
     },
   );
@@ -193,9 +204,9 @@ export function createSolidMcpServer(config: SolidMcpConfig): McpServer {
     async ({ query, scope }) => {
       try {
         const matches = await search(cfg, query, scope ? { scope } : {});
-        return { content: [{ type: "text" as const, text: JSON.stringify(matches, null, 2) }] };
+        return toolText(JSON.stringify(matches, null, 2));
       } catch (e) {
-        return { isError: true, content: [{ type: "text" as const, text: errorText(e) }] };
+        return toolError(e);
       }
     },
   );
@@ -216,28 +227,15 @@ export function createSolidMcpServer(config: SolidMcpConfig): McpServer {
     async ({ url, content, contentType }) => {
       // Reflect the read-only default as an isError result rather than throwing.
       if (!writesEnabled(cfg)) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: "write disabled: server is read-only (set readOnly:false to enable writes).",
-            },
-          ],
-        };
+        return toolError(
+          "write disabled: server is read-only (set readOnly:false to enable writes).",
+        );
       }
       try {
         const result = await writeResource(cfg, url, content, contentType);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `wrote ${result.url}${result.etag ? ` (etag ${result.etag})` : ""}`,
-            },
-          ],
-        };
+        return toolText(`wrote ${result.url}${result.etag ? ` (etag ${result.etag})` : ""}`);
       } catch (e) {
-        return { isError: true, content: [{ type: "text" as const, text: errorText(e) }] };
+        return toolError(e);
       }
     },
   );
