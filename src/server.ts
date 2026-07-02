@@ -22,17 +22,14 @@ import {
   type SolidMcpConfig,
   writesEnabled,
 } from "./auth.js";
-import { listContainer, readRdf, readResource, search, writeResource } from "./pod.js";
-
-/** Lowercase RDF media types we render as Turtle in the resource read path. */
-const RDF_MEDIA = new Set([
-  "text/turtle",
-  "application/x-turtle",
-  "application/ld+json",
-  "application/n-triples",
-  "application/n-quads",
-  "application/trig",
-]);
+import {
+  listContainer,
+  RDF_MEDIA_TYPES,
+  readRdf,
+  readResource,
+  search,
+  writeResource,
+} from "./pod.js";
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -92,7 +89,7 @@ export function createSolidMcpServer(config: SolidMcpConfig): McpServer {
       }
       // Peek at the content-type via the bytes path; render RDF as Turtle.
       const bytes = await readResource(cfg, target);
-      if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
+      if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
         const { turtle } = await readRdf(cfg, target);
         return { contents: [{ uri: target, mimeType: "text/turtle", text: turtle }] };
       }
@@ -154,7 +151,7 @@ export function createSolidMcpServer(config: SolidMcpConfig): McpServer {
       try {
         const target = requirePodScopedUrl(cfg, url);
         const bytes = await readResource(cfg, target);
-        if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
+        if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
           const { turtle } = await readRdf(cfg, target);
           return { content: [{ type: "text" as const, text: turtle }] };
         }

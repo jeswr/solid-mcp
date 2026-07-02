@@ -79,6 +79,15 @@ export declare function readResource(config: SolidMcpConfig, url: string): Promi
  */
 export declare function readRdf(config: SolidMcpConfig, url: string): Promise<ReadRdfResult>;
 /**
+ * The lowercase RDF media types this package recognises — the ONE reviewed list,
+ * shared by every RDF decision so they cannot drift:
+ *   - here (`isRdfLike`): which resources to RDF-parse during a literal search;
+ *   - in server.ts: which resources to render as Turtle in the read path.
+ * If a new RDF serialisation is supported, adding it here updates BOTH. Internal
+ * (not re-exported from index.ts), so it is not part of the public API surface.
+ */
+export declare const RDF_MEDIA_TYPES: Set<string>;
+/**
  * Client-side search across the pod (NO server FTS).
  *
  * Strategy:
