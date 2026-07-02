@@ -408,19 +408,17 @@ async function seedContainers(config, q, scope, matches) {
     return seeds;
   }
   for (const hint of hints) {
-    let scoped;
     try {
-      scoped = requirePodScopedUrl(config, hint);
+      const scoped = requirePodScopedUrl(config, hint);
+      if (scoped.endsWith("/")) {
+        seeds.add(scoped);
+      } else {
+        const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
+        if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
+          matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
+        }
+      }
     } catch {
-      continue;
-    }
-    if (scoped.endsWith("/")) {
-      seeds.add(scoped);
-      continue;
-    }
-    const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
-    if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
-      matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
     }
   }
   return seeds;
