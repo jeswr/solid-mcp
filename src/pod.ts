@@ -234,6 +234,134 @@ export const RDF_MEDIA_TYPES = new Set([
 ]);
 
 /**
+ * De-duplicated match accumulator keyed by URL, keeping the STRONGEST (lowest)
+ * rank per URL. `ranked()` returns matches sorted strongest-first. Encapsulating
+ * the byUrl+rank bookkeeping keeps `search` readable (it just calls `add`).
+ */
+class RankedMatches {
+  private readonly byUrl = new Map<string, SearchMatch>();
+  private readonly rankOf = new Map<string, number>();
+
+  /** Record `m` at `rank`; a lower rank overrides a previously-stored weaker one. */
+  add(m: SearchMatch, rank: number): void {
+    if (rank < (this.rankOf.get(m.url) ?? Number.POSITIVE_INFINITY)) {
+      this.byUrl.set(m.url, m);
+      this.rankOf.set(m.url, rank);
+    }
+  }
+
+  /** All matches, strongest (lowest rank) first. */
+  ranked(): SearchMatch[] {
+    return [...this.byUrl.values()].sort(
+      (a, b) => (this.rankOf.get(a.url) ?? 9) - (this.rankOf.get(b.url) ?? 9),
+    );
+  }
+}
+
+/**
+ * (1) Seed containers for the scan. Always seeds the `scope`; when a `webId` is
+ * configured, adds best-effort Type-Index hints (a failure never aborts). Each
+ * discovered hint is re-scope-checked (SSRF guard): in-pod containers become scan
+ * seeds; a direct in-pod instance file is matched immediately (rank 0). A hint
+ * outside the pod is ignored.
+ */
+async function seedContainers(
+  config: SolidMcpConfig,
+  q: string,
+  scope: string,
+  matches: RankedMatches,
+): Promise<Set<string>> {
+  const seeds = new Set<string>([scope]);
+  if (!config.webId) return seeds;
+  let hints: string[];
+  try {
+    hints = await typeIndexContainers(config);
+  } catch {
+    return seeds; // No type index / unreadable profile — plain scan from scope.
+  }
+  for (const hint of hints) {
+    let scoped: string;
+    try {
+      scoped = requirePodScopedUrl(config, hint); // only honour in-pod hints
+    } catch {
+      continue; // hint outside pod scope — ignore.
+    }
+    if (isContainerUrl(scoped)) {
+      seeds.add(scoped);
+      continue;
+    }
+    // A direct instance file: match its url/name immediately.
+    const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
+    if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
+      matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
+    }
+  }
+  return seeds;
+}
+
+/** A single RDF resource child matched against `q` for a literal hit (rank 2). */
+async function matchChildLiteral(
+  config: SolidMcpConfig,
+  child: PodChild,
+  q: string,
+  matches: RankedMatches,
+): Promise<void> {
+  // A container listing often does NOT advertise a child's mimeType, so we also
+  // try resources whose URL carries a known RDF file extension. Best-effort.
+  if (!(isRdfLike(child.mimeType) || hasRdfExtension(child.url))) return;
+  const literalHit = await literalMatch(config, child.url, q);
+  if (literalHit) {
+    matches.add({ url: child.url, name: child.name, snippet: `literal: ${literalHit}` }, 2);
+  }
+}
+
+/**
+ * (2) Bounded breadth-first container scan from `seeds`, capped by `maxDepth` and
+ * `maxResources`. Each visited resource is matched against `q` by url/name
+ * (rank 1); RDF resources additionally by literal value (rank 2); sub-containers
+ * are enqueued until the depth cap. All matches are added to `matches`.
+ */
+async function scanContainers(
+  config: SolidMcpConfig,
+  q: string,
+  seeds: Set<string>,
+  maxDepth: number,
+  maxResources: number,
+  matches: RankedMatches,
+): Promise<void> {
+  let visited = 0;
+  const seen = new Set<string>();
+  const queue: Array<{ url: string; depth: number }> = [...seeds].map((url) => ({ url, depth: 0 }));
+  while (queue.length > 0 && visited < maxResources) {
+    const next = queue.shift();
+    if (!next) break;
+    const { url, depth } = next;
+    if (seen.has(url)) continue;
+    seen.add(url);
+
+    let children: PodChild[];
+    try {
+      children = await listContainer(config, url);
+    } catch {
+      continue; // unreadable container — skip.
+    }
+
+    for (const child of children) {
+      if (visited >= maxResources) break;
+      visited++;
+      if (child.name.toLowerCase().includes(q) || child.url.toLowerCase().includes(q)) {
+        matches.add({ url: child.url, name: child.name, snippet: "name/url match" }, 1);
+      }
+      if (child.isContainer) {
+        if (depth + 1 <= maxDepth) queue.push({ url: child.url, depth: depth + 1 });
+      } else {
+        await matchChildLiteral(config, child, q, matches);
+      }
+    }
+  }
+}
+
+/**
  * Client-side search across the pod (NO server FTS).
  *
  * Strategy:
@@ -260,90 +388,10 @@ export async function search(
   const maxResources = options.maxResources ?? 500;
   const scope = requirePodScopedUrl(config, options.scope ?? config.podRoot);
 
-  const byUrl = new Map<string, SearchMatch>();
-  const addMatch = (m: SearchMatch, rank: number) => {
-    const existing = byUrl.get(m.url);
-    // Lower rank = stronger; keep the strongest. Store rank alongside via a Map.
-    if (!existing || rank < (rankOf.get(m.url) ?? Number.POSITIVE_INFINITY)) {
-      byUrl.set(m.url, m);
-      rankOf.set(m.url, rank);
-    }
-  };
-  const rankOf = new Map<string, number>();
-
-  // (1) Type-Index hints (best-effort — never let a failure abort the scan).
-  const seedContainers = new Set<string>([scope]);
-  if (config.webId) {
-    try {
-      for (const hint of await typeIndexContainers(config)) {
-        // Only honour hints inside the pod scope.
-        try {
-          const scoped = requirePodScopedUrl(config, hint);
-          if (isContainerUrl(scoped)) {
-            seedContainers.add(scoped);
-          } else {
-            // A direct instance file: match its url/name immediately.
-            const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
-            if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
-              addMatch({ url: scoped, name, snippet: "type-index instance" }, 0);
-            }
-          }
-        } catch {
-          // hint outside pod scope — ignore.
-        }
-      }
-    } catch {
-      // No type index / unreadable profile — fall through to the plain scan.
-    }
-  }
-
-  // (2) Bounded recursive container scan.
-  let visited = 0;
-  const seenContainers = new Set<string>();
-  const queue: Array<{ url: string; depth: number }> = [];
-  for (const c of seedContainers) {
-    queue.push({ url: c, depth: 0 });
-  }
-  while (queue.length > 0) {
-    if (visited >= maxResources) break;
-    const next = queue.shift();
-    if (!next) break;
-    const { url, depth } = next;
-    if (seenContainers.has(url)) continue;
-    seenContainers.add(url);
-
-    let children: PodChild[];
-    try {
-      children = await listContainer(config, url);
-    } catch {
-      continue; // unreadable container — skip.
-    }
-
-    for (const child of children) {
-      if (visited >= maxResources) break;
-      visited++;
-      const nameLc = child.name.toLowerCase();
-      const urlLc = child.url.toLowerCase();
-      if (nameLc.includes(q) || urlLc.includes(q)) {
-        addMatch({ url: child.url, name: child.name, snippet: "name/url match" }, 1);
-      }
-      if (child.isContainer) {
-        if (depth + 1 <= maxDepth) {
-          queue.push({ url: child.url, depth: depth + 1 });
-        }
-      } else if (isRdfLike(child.mimeType) || hasRdfExtension(child.url)) {
-        // Literal search inside RDF resources (best-effort). A container listing
-        // often does NOT advertise a child's mimeType, so we also try resources
-        // whose URL carries a known RDF file extension.
-        const literalHit = await literalMatch(config, child.url, q);
-        if (literalHit) {
-          addMatch({ url: child.url, name: child.name, snippet: `literal: ${literalHit}` }, 2);
-        }
-      }
-    }
-  }
-
-  return [...byUrl.values()].sort((a, b) => (rankOf.get(a.url) ?? 9) - (rankOf.get(b.url) ?? 9));
+  const matches = new RankedMatches();
+  const seeds = await seedContainers(config, q, scope, matches); // (1) seed
+  await scanContainers(config, q, seeds, maxDepth, maxResources, matches); // (2) scan
+  return matches.ranked(); // (3) rank
 }
 
 /** Is the MIME type one we will attempt to RDF-parse for literal search? */
