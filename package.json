@@ -25,6 +25,7 @@
     "build:dev": "npm run build:deps && tsc -p tsconfig.build.json",
     "check:dist": "node scripts/check-dist-fresh.mjs",
     "check:lockfile-transport": "node scripts/check-lockfile-transport.mjs",
+    "fix:lockfile-transport": "node scripts/normalize-lockfile.mjs",
     "typecheck": "npm run build:deps && tsc -p tsconfig.json --noEmit",
     "lint": "biome check src test scripts && npm run check:lockfile-transport",
     "lint:fix": "biome check --write src test scripts",

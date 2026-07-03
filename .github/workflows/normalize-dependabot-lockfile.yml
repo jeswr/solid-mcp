@@ -1,0 +1,63 @@
+name: Normalize Dependabot lockfile transport
+
+# The #78 bug class: npm's git-dependency resolution unconditionally writes
+# the SSH transport (git+ssh://git@github.com/...) into package-lock.json's
+# `resolved` field for @jeswr github: deps as a side effect of ANY lockfile
+# regen -- including Dependabot's own version-bump commits, even when the
+# bump itself has nothing to do with the @jeswr dependency. Dependabot
+# commits its regenerated lockfile directly onto its own branch, bypassing
+# any local pre-commit discipline, so CI (`npm ci` / `check:lockfile-transport`)
+# goes red on essentially every Dependabot PR until a human/agent manually
+# restores the HTTPS transport and force-pushes a fix.
+#
+# This workflow closes that loop: on every push to a `dependabot/**` branch
+# (i.e. every time Dependabot creates or updates one of its own PRs), run the
+# stdlib-only fix script (scripts/normalize-lockfile.mjs) and, if it changed
+# anything, commit + push the fix straight back onto the same branch. That
+# re-triggers this workflow and every other check on the PR; the second run
+# is a no-op (the script is idempotent) so there is no infinite loop.
+#
+# Deliberately triggered on `push` rather than `pull_request` /
+# `pull_request_target`: Dependabot branches live in this repo (not a fork),
+# so a plain `push` trigger already runs with this workflow's own
+# `contents: write` permission -- no need for the pull_request_target +
+# explicit-head-checkout dance that cross-fork PR automation requires.
+on:
+  push:
+    branches:
+      - "dependabot/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: normalize-dependabot-lockfile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  normalize:
+    if: github.actor == 'dependabot[bot]' || github.event.pusher.name == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Normalize package-lock.json git transport
+        run: node scripts/normalize-lockfile.mjs
+
+      - name: Commit + push the fix if the lockfile changed
+        run: |
+          if git diff --quiet -- '**/package-lock.json'; then
+            echo "Lockfile transport already HTTPS; nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '**/package-lock.json'
+          git commit -m "fix(deps): normalize @jeswr git-dep transport to https (#78)"
+          git push origin HEAD:"${{ github.ref_name }}"
