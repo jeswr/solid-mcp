@@ -161,6 +161,28 @@ import {
 - **Deeper typed-data tools** (task / contact / bookmark / calendar shape-aware
   read + write) over `@jeswr/solid-task-model` and the suite shapes.
 
+## Development
+
+```sh
+npm run lint                      # biome + check:lockfile-transport
+npm run typecheck                 # tsc --noEmit
+npm test                          # vitest
+npm run build                     # tsc → dist/
+npm run check:dist                # guard the committed dist/ against src/ drift
+npm run check:lockfile-transport  # guard package-lock.json against the SSH git transport (#78: npm install rewrites @jeswr github: deps to git+ssh, breaking npm ci)
+npm run fix:lockfile-transport    # the FIX half of the #78 guard — normalizes an SSH-rewritten lockfile back to HTTPS; run after any npm install/update, before committing
+```
+
+Any `npm install` / `npm update` re-triggers the #78 rewrite (npm recomputes every git-dependency
+`resolved` URL as SSH on ANY lockfile regen, even one triggered by an unrelated bump — this is why
+it recurs on Dependabot PRs here even when the bump is unrelated to `@jeswr/fetch-rdf`). A
+repo-local git config `insteadOf` does **not** prevent it (it only changes what the `git` binary
+does when actually invoked, not what npm writes into the lockfile). `npm run fix:lockfile-transport`
+is the durable fix: run it after any install/update, then `check:lockfile-transport` (or `lint`)
+passes and the lockfile stays committable over HTTPS. Dependabot PRs are additionally auto-fixed by
+[`.github/workflows/normalize-dependabot-lockfile.yml`](.github/workflows/normalize-dependabot-lockfile.yml),
+which pushes a normalizing commit onto the PR branch if Dependabot's own regenerated lockfile needs it.
+
 ## License
 
 MIT © [Jesse Wright](https://github.com/jeswr)
