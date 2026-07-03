@@ -19,9 +19,44 @@
     "lint": "@biomejs/biome ^2.x",
     "node": ">=20"
   },
-  "dependsOn": ["fetch-rdf"],
+  "dependsOn": [
+    "fetch-rdf"
+  ],
   "federation": {
     "sectors": [],
     "membershipTodo": "Agentic infrastructure (not an app, no federation membership of its own — it is agent-access glue). An MCP (Model Context Protocol) server that exposes a Solid pod to MCP clients (Claude Desktop, etc.). It maps pod URLs 1:1 to MCP Resources and offers four pod-scope-guarded Tools — solid_list, solid_read, solid_search, solid_write — over an injectable authenticated Solid-OIDC/DPoP fetch (the server holds no bespoke crypto). Read-only by default; writes are opt-in (readOnly:false). M1 = stdio transport. The pod-scope guard is the SSRF/scope boundary that stops an agent reaching arbitrary origins. Typed data uses the suite's RDF shapes so an agent reads the same shapes the suite apps write."
+  },
+  "status": {
+    "generatedAt": "2026-07-03T05:14:36.655Z",
+    "commit": "bf32a9647e78e643e2f527659f79b3d29424618f",
+    "version": "0.1.0",
+    "gate": {
+      "lint": "skip",
+      "typecheck": "skip",
+      "test": "skip",
+      "build": "skip"
+    },
+    "coverage": {
+      "lines": {
+        "pct": 92.99,
+        "covered": 544,
+        "total": 585
+      },
+      "statements": {
+        "pct": 92.99,
+        "covered": 544,
+        "total": 585
+      },
+      "branches": {
+        "pct": 77.31,
+        "covered": 150,
+        "total": 194
+      },
+      "functions": {
+        "pct": 95.83,
+        "covered": 23,
+        "total": 24
+      }
+    }
   }
 }
