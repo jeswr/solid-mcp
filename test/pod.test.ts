@@ -362,6 +362,30 @@ describe("search", () => {
     const hits = await search(cfg(pod.fetch, { webId }), "favorite");
     expect(hits.map((h) => h.url)).toContain(`${POD}bookmarks/favorite-thing.ttl`);
   });
+
+  it("classifies a type-index hint by PATH, not the raw resolved-URL string (regression: a query ending in '/' is not a container)", async () => {
+    const webId = `${POD}profile/card#me`;
+    const Solid = "http://www.w3.org/ns/solid/terms#";
+    const profile = `<${webId}> <${Solid}publicTypeIndex> <${POD}settings/publicTypeIndex.ttl> .`;
+    // The hinted URL's PATH does not end in "/" (it addresses a single resource),
+    // but its QUERY STRING does. A raw `resolvedUrl.endsWith("/")` check
+    // misclassifies this as a container; the correct check parses the URL and
+    // tests only the pathname (@jeswr/guarded-fetch's `isContainerUrl`).
+    const instanceUrl = `${POD}treasure.ttl?tag=/`;
+    const index = `<#reg> <${Solid}instance> <${instanceUrl}> .`;
+    const pod = makeFakePod({
+      [webId]: { contentType: "text/turtle", body: profile },
+      [`${POD}settings/publicTypeIndex.ttl`]: { contentType: "text/turtle", body: index },
+      // Default root scope is empty: only the type-index instance hint can match.
+      [POD]: { contentType: "text/turtle", body: containerTurtle(POD, []) },
+    });
+    const hits = await search(cfg(pod.fetch, { webId }), "treasure");
+    // If mis-seeded as a container, `listContainer` would be attempted on it
+    // (and silently swallowed on failure) rather than matched directly as an
+    // instance — so this assertion fails under the old raw-string classifier.
+    expect(hits.map((h) => h.url)).toContain(instanceUrl);
+    expect(hits.find((h) => h.url === instanceUrl)?.snippet).toBe("type-index instance");
+  });
 });
 
 describe("writeResource", () => {

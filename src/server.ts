@@ -12,6 +12,8 @@
  *    reflects the read-only default (returns `isError` when disabled, never throws
  *    out of the handler). Tool handlers catch errors → `{ isError: true, ... }`.
  */
+
+import { isContainerUrl } from "@jeswr/guarded-fetch";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -31,11 +33,6 @@ const RDF_MEDIA = new Set([
   "application/n-quads",
   "application/trig",
 ]);
-
-/** A URL ending in `/` is an LDP container. */
-function isContainerUrl(url: string): boolean {
-  return url.endsWith("/");
-}
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

@@ -8,6 +8,7 @@
  * re-serialised with `n3.Writer` over the parsed quads.
  */
 import { fetchRdf } from "@jeswr/fetch-rdf";
+import { isContainerUrl } from "@jeswr/guarded-fetch";
 import { ContainerDataset } from "@solid/object";
 import { DataFactory, Writer } from "n3";
 import {
@@ -271,7 +272,7 @@ export async function search(
         // Only honour hints inside the pod scope.
         try {
           const scoped = requirePodScopedUrl(config, hint);
-          if (scoped.endsWith("/")) {
+          if (isContainerUrl(scoped)) {
             seedContainers.add(scoped);
           } else {
             // A direct instance file: match its url/name immediately.
