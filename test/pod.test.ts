@@ -408,6 +408,25 @@ describe("writeResource", () => {
     expect(pod.puts.length).toBe(0);
   });
 
+  it("rejects the slashless pod-base alias as a write target (scope-widening regression)", async () => {
+    // POD = "https://alice.example/pod/"; the slashless alias "…/pod" is a
+    // resource in the PARENT container, above the configured sub-tree. A write to
+    // it must be refused (allowRoot:false on the write path), even with writes on.
+    const pod = makeFakePod({});
+    await expect(
+      writeResource(cfg(pod.fetch, { readOnly: false }), POD.slice(0, -1), "y", "text/plain"),
+    ).rejects.toThrow(/pod-scope violation/);
+    expect(pod.puts.length).toBe(0);
+  });
+
+  it("rejects the pod root itself as a write target", async () => {
+    const pod = makeFakePod({});
+    await expect(
+      writeResource(cfg(pod.fetch, { readOnly: false }), POD, "y", "text/plain"),
+    ).rejects.toThrow(/pod-scope violation/);
+    expect(pod.puts.length).toBe(0);
+  });
+
   it("fails closed on a 403 write", async () => {
     // A fetch that returns 403 on PUT (the pod denied write access).
     const denying = (async () =>

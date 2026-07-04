@@ -26,9 +26,15 @@ function normalizePodRoot(podRoot) {
   return parsed.toString();
 }
 function requirePodScopedUrl(config, url) {
-  const root = normalizePodRoot(config.podRoot);
+  return scopeOrThrow(config.podRoot, url, { allowRoot: true });
+}
+function requirePodScopedWriteUrl(config, url) {
+  return scopeOrThrow(config.podRoot, url, { allowRoot: false });
+}
+function scopeOrThrow(podRoot, url, options) {
+  const root = normalizePodRoot(podRoot);
   try {
-    return assertWithinPodScope(root, url);
+    return assertWithinPodScope(root, url, options);
   } catch (err) {
     throw new Error(
       `pod-scope violation: ${err instanceof PodScopeError ? err.message : String(err)}`
@@ -506,7 +512,7 @@ async function writeResource(config, url, content, contentType2) {
   if (!writesEnabled(config)) {
     throw new Error("write disabled: server is read-only (set readOnly:false to enable writes).");
   }
-  const target = requirePodScopedUrl(config, url);
+  const target = requirePodScopedWriteUrl(config, url);
   const res = await config.fetch(target, {
     method: "PUT",
     headers: { "content-type": contentType2 },
@@ -734,6 +740,7 @@ export {
   readRdf,
   readResource,
   requirePodScopedUrl,
+  requirePodScopedWriteUrl,
   search,
   writeResource,
   writesEnabled

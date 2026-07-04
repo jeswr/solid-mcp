@@ -13,6 +13,7 @@ import { DataFactory, Writer } from "n3";
 import {
   podScopedUrlOrUndefined,
   requirePodScopedUrl,
+  requirePodScopedWriteUrl,
   type SolidMcpConfig,
   scopedFetch,
   writesEnabled,
@@ -456,7 +457,10 @@ export async function writeResource(
   if (!writesEnabled(config)) {
     throw new Error("write disabled: server is read-only (set readOnly:false to enable writes).");
   }
-  const target = requirePodScopedUrl(config, url);
+  // Write-target semantics: the target must be strictly UNDER the pod root, never
+  // the root itself nor its slashless alias (a parent-container resource). See
+  // requirePodScopedWriteUrl — reads may address the root; writes may not.
+  const target = requirePodScopedWriteUrl(config, url);
   // Manual redirect: never replay a write body to a redirect target (a 3xx on a
   // PUT could steer the write out of the pod — redirect-based SSRF guard). Treat
   // any redirect on a write as a failure rather than following it.

@@ -1,6 +1,11 @@
 // AUTHORED-BY Claude Opus 4.8 (Fable unavailable) — re-review/upgrade candidate
 import { describe, expect, it } from "vitest";
-import { normalizePodRoot, requirePodScopedUrl, writesEnabled } from "../src/auth.js";
+import {
+  normalizePodRoot,
+  requirePodScopedUrl,
+  requirePodScopedWriteUrl,
+  writesEnabled,
+} from "../src/auth.js";
 
 const POD = "https://alice.example/pod/";
 
@@ -91,6 +96,34 @@ describe("requirePodScopedUrl", () => {
 
   it("rejects an empty url", () => {
     expect(() => requirePodScopedUrl(cfg, "")).toThrow(/non-empty/);
+  });
+});
+
+describe("requirePodScopedWriteUrl", () => {
+  const cfg = { podRoot: POD }; // POD = "https://alice.example/pod/"
+
+  it("accepts an in-pod resource strictly under the root", () => {
+    expect(requirePodScopedWriteUrl(cfg, `${POD}notes/a.ttl`)).toBe(`${POD}notes/a.ttl`);
+  });
+
+  it("REJECTS the pod root itself as a write target (allowRoot:false)", () => {
+    expect(() => requirePodScopedWriteUrl(cfg, POD)).toThrow(/pod-scope violation/);
+  });
+
+  it("REJECTS the slashless base alias as a write target (scope-widening regression guard)", () => {
+    // 'https://alice.example/pod' is a resource in the PARENT container, one level
+    // ABOVE the configured '…/pod/' sub-tree. assertWithinPodScope treats it as a
+    // root alias; under the read default (allowRoot:true) it would be ACCEPTED,
+    // widening the write boundary — exactly what the pre-consolidation
+    // `startsWith(root)` guard rejected. The write guard must refuse it.
+    const slashless = POD.slice(0, -1); // "https://alice.example/pod"
+    expect(() => requirePodScopedWriteUrl(cfg, slashless)).toThrow(/pod-scope violation/);
+  });
+
+  it("still rejects a different-origin write target (SSRF)", () => {
+    expect(() => requirePodScopedWriteUrl(cfg, "https://evil.example/x")).toThrow(
+      /pod-scope violation/,
+    );
   });
 });
 
