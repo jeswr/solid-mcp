@@ -1,0 +1,45 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+
+  // The committed .d.ts declarations (built by `npm run build` / tsc) are the
+  // input. api-extractor rolls up the public API reachable from the package entry
+  // point (`dist/index.d.ts`) into a single diffable report — the reviewability
+  // cornerstone: "what is the public API?" becomes a one-file diff of
+  // `etc/solid-mcp.api.md`, not a code-reading exercise. `ae-forgotten-export` is
+  // an ERROR so no type can leak into the surface without being deliberately
+  // exported from `src/index.ts` (and thus appearing in the report).
+  "mainEntryPointFilePath": "<projectFolder>/dist/index.d.ts",
+
+  "apiReport": {
+    "enabled": true,
+    "reportFolder": "<projectFolder>/etc/",
+    "reportTempFolder": "<projectFolder>/etc/temp/",
+    "reportFileName": "solid-mcp.api.md"
+  },
+
+  "docModel": { "enabled": false },
+  "dtsRollup": { "enabled": false },
+  "tsdocMetadata": { "enabled": false },
+
+  "messages": {
+    "compilerMessageReporting": {
+      "default": { "logLevel": "warning" }
+    },
+    "extractorMessageReporting": {
+      "default": { "logLevel": "warning" },
+      // A type referenced by the public API but not itself exported would be an
+      // invisible member of the surface — fail on it so the report is complete.
+      "ae-forgotten-export": { "logLevel": "error" },
+      // This package intentionally does not use @public/@beta release tags; the
+      // whole documented surface is public. Silence the missing-tag noise.
+      "ae-missing-release-tag": { "logLevel": "none" },
+      // Some TSDoc {@link} targets are external SDK types (e.g. McpServer from
+      // @modelcontextprotocol/sdk) that api-extractor cannot resolve; those links
+      // are intentional cross-references, not surface problems.
+      "ae-unresolved-link": { "logLevel": "none" }
+    },
+    "tsdocMessageReporting": {
+      "default": { "logLevel": "none" }
+    }
+  }
+}

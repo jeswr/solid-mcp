@@ -386,6 +386,30 @@ describe("search", () => {
     expect(hits.map((h) => h.url)).toContain(instanceUrl);
     expect(hits.find((h) => h.url === instanceUrl)?.snippet).toBe("type-index instance");
   });
+
+  it("does NOT abort when a type-index direct instance has malformed percent-encoding", async () => {
+    // Regression: an in-pod type-index `solid:instance` whose last segment has
+    // malformed percent-encoding (`%zz`) passes the scope guard but throws in
+    // decodeURIComponent. This UNTRUSTED-profile input must be skipped (best-effort
+    // seeding), never abort the whole search — the normal scan hit still returns.
+    const webId = `${POD}profile/card#me`;
+    const Solid = "http://www.w3.org/ns/solid/terms#";
+    const badInstance = `${POD}notes/bad%zz.ttl`; // in-pod, undecodable segment
+    const profile = `<${webId}> <${Solid}publicTypeIndex> <${POD}settings/publicTypeIndex.ttl> .`;
+    const index = `<#reg> <${Solid}instance> <${badInstance}> .`;
+    const pod = makeFakePod({
+      [webId]: { contentType: "text/turtle", body: profile },
+      [`${POD}settings/publicTypeIndex.ttl`]: { contentType: "text/turtle", body: index },
+      [POD]: {
+        contentType: "text/turtle",
+        body: containerTurtle(POD, [{ name: "findme.ttl" }]),
+      },
+      [`${POD}findme.ttl`]: { contentType: "text/turtle", body: "" },
+    });
+    const hits = await search(cfg(pod.fetch, { webId }), "findme");
+    // Search completed (did not throw) and still returned the normal scan hit.
+    expect(hits.map((h) => h.url)).toContain(`${POD}findme.ttl`);
+  });
 });
 
 describe("writeResource", () => {

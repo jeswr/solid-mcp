@@ -367,7 +367,7 @@ function serializeTurtle(dataset) {
     });
   });
 }
-var RDF_LIKE = /* @__PURE__ */ new Set([
+var RDF_MEDIA_TYPES = /* @__PURE__ */ new Set([
   "text/turtle",
   "application/x-turtle",
   "application/ld+json",
@@ -375,56 +375,65 @@ var RDF_LIKE = /* @__PURE__ */ new Set([
   "application/n-quads",
   "application/trig"
 ]);
-async function search(config, query, options = {}) {
-  const q = (query ?? "").trim().toLowerCase();
-  if (q.length === 0) {
-    return [];
-  }
-  const maxDepth = options.maxDepth ?? 4;
-  const maxResources = options.maxResources ?? 500;
-  const scope = requirePodScopedUrl(config, options.scope ?? config.podRoot);
-  const byUrl = /* @__PURE__ */ new Map();
-  const addMatch = (m, rank) => {
-    const existing = byUrl.get(m.url);
-    if (!existing || rank < (rankOf.get(m.url) ?? Number.POSITIVE_INFINITY)) {
-      byUrl.set(m.url, m);
-      rankOf.set(m.url, rank);
+var RankedMatches = class {
+  byUrl = /* @__PURE__ */ new Map();
+  rankOf = /* @__PURE__ */ new Map();
+  /** Record `m` at `rank`; a lower rank overrides a previously-stored weaker one. */
+  add(m, rank) {
+    if (rank < (this.rankOf.get(m.url) ?? Number.POSITIVE_INFINITY)) {
+      this.byUrl.set(m.url, m);
+      this.rankOf.set(m.url, rank);
     }
-  };
-  const rankOf = /* @__PURE__ */ new Map();
-  const seedContainers = /* @__PURE__ */ new Set([scope]);
-  if (config.webId) {
+  }
+  /** All matches, strongest (lowest rank) first. */
+  ranked() {
+    return [...this.byUrl.values()].sort(
+      (a, b) => (this.rankOf.get(a.url) ?? 9) - (this.rankOf.get(b.url) ?? 9)
+    );
+  }
+};
+async function seedContainers(config, q, scope, matches) {
+  const seeds = /* @__PURE__ */ new Set([scope]);
+  if (!config.webId) return seeds;
+  let hints;
+  try {
+    hints = await typeIndexContainers(config);
+  } catch {
+    return seeds;
+  }
+  for (const hint of hints) {
     try {
-      for (const hint of await typeIndexContainers(config)) {
-        try {
-          const scoped = requirePodScopedUrl(config, hint);
-          if (isContainerUrl(scoped)) {
-            seedContainers.add(scoped);
-          } else {
-            const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
-            if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
-              addMatch({ url: scoped, name, snippet: "type-index instance" }, 0);
-            }
-          }
-        } catch {
+      const scoped = requirePodScopedUrl(config, hint);
+      if (isContainerUrl(scoped)) {
+        seeds.add(scoped);
+      } else {
+        const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
+        if (scoped.toLowerCase().includes(q) || name.toLowerCase().includes(q)) {
+          matches.add({ url: scoped, name, snippet: "type-index instance" }, 0);
         }
       }
     } catch {
     }
   }
-  let visited = 0;
-  const seenContainers = /* @__PURE__ */ new Set();
-  const queue = [];
-  for (const c of seedContainers) {
-    queue.push({ url: c, depth: 0 });
+  return seeds;
+}
+async function matchChildLiteral(config, child, q, matches) {
+  if (!(isRdfLike(child.mimeType) || hasRdfExtension(child.url))) return;
+  const literalHit = await literalMatch(config, child.url, q);
+  if (literalHit) {
+    matches.add({ url: child.url, name: child.name, snippet: `literal: ${literalHit}` }, 2);
   }
-  while (queue.length > 0) {
-    if (visited >= maxResources) break;
+}
+async function scanContainers(config, q, seeds, maxDepth, maxResources, matches) {
+  let visited = 0;
+  const seen = /* @__PURE__ */ new Set();
+  const queue = [...seeds].map((url) => ({ url, depth: 0 }));
+  while (queue.length > 0 && visited < maxResources) {
     const next = queue.shift();
     if (!next) break;
     const { url, depth } = next;
-    if (seenContainers.has(url)) continue;
-    seenContainers.add(url);
+    if (seen.has(url)) continue;
+    seen.add(url);
     let children;
     try {
       children = await listContainer(config, url);
@@ -434,28 +443,33 @@ async function search(config, query, options = {}) {
     for (const child of children) {
       if (visited >= maxResources) break;
       visited++;
-      const nameLc = child.name.toLowerCase();
-      const urlLc = child.url.toLowerCase();
-      if (nameLc.includes(q) || urlLc.includes(q)) {
-        addMatch({ url: child.url, name: child.name, snippet: "name/url match" }, 1);
+      if (child.name.toLowerCase().includes(q) || child.url.toLowerCase().includes(q)) {
+        matches.add({ url: child.url, name: child.name, snippet: "name/url match" }, 1);
       }
       if (child.isContainer) {
-        if (depth + 1 <= maxDepth) {
-          queue.push({ url: child.url, depth: depth + 1 });
-        }
-      } else if (isRdfLike(child.mimeType) || hasRdfExtension(child.url)) {
-        const literalHit = await literalMatch(config, child.url, q);
-        if (literalHit) {
-          addMatch({ url: child.url, name: child.name, snippet: `literal: ${literalHit}` }, 2);
-        }
+        if (depth + 1 <= maxDepth) queue.push({ url: child.url, depth: depth + 1 });
+      } else {
+        await matchChildLiteral(config, child, q, matches);
       }
     }
   }
-  return [...byUrl.values()].sort((a, b) => (rankOf.get(a.url) ?? 9) - (rankOf.get(b.url) ?? 9));
+}
+async function search(config, query, options = {}) {
+  const q = (query ?? "").trim().toLowerCase();
+  if (q.length === 0) {
+    return [];
+  }
+  const maxDepth = options.maxDepth ?? 4;
+  const maxResources = options.maxResources ?? 500;
+  const scope = requirePodScopedUrl(config, options.scope ?? config.podRoot);
+  const matches = new RankedMatches();
+  const seeds = await seedContainers(config, q, scope, matches);
+  await scanContainers(config, q, seeds, maxDepth, maxResources, matches);
+  return matches.ranked();
 }
 function isRdfLike(mimeType) {
   if (!mimeType) return false;
-  return RDF_LIKE.has(mimeType.toLowerCase());
+  return RDF_MEDIA_TYPES.has(mimeType.toLowerCase());
 }
 var RDF_EXTENSIONS = [".ttl", ".jsonld", ".nt", ".nq", ".trig", ".n3"];
 function hasRdfExtension(url) {
@@ -550,16 +564,14 @@ async function writeResource(config, url, content, contentType2) {
 }
 
 // src/server.ts
-var RDF_MEDIA = /* @__PURE__ */ new Set([
-  "text/turtle",
-  "application/x-turtle",
-  "application/ld+json",
-  "application/n-triples",
-  "application/n-quads",
-  "application/trig"
-]);
 function errorText(e) {
   return e instanceof Error ? e.message : String(e);
+}
+function toolText(text) {
+  return { content: [{ type: "text", text }] };
+}
+function toolError(e) {
+  return { isError: true, content: [{ type: "text", text: errorText(e) }] };
 }
 function createSolidMcpServer(config) {
   const podRoot = normalizePodRoot(config.podRoot);
@@ -599,7 +611,7 @@ function createSolidMcpServer(config) {
         };
       }
       const bytes = await readResource(cfg, target);
-      if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
+      if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
         const { turtle } = await readRdf(cfg, target);
         return { contents: [{ uri: target, mimeType: "text/turtle", text: turtle }] };
       }
@@ -638,9 +650,9 @@ function createSolidMcpServer(config) {
     async ({ container }) => {
       try {
         const children = await listContainer(cfg, container);
-        return { content: [{ type: "text", text: JSON.stringify(children, null, 2) }] };
+        return toolText(JSON.stringify(children, null, 2));
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
@@ -656,24 +668,19 @@ function createSolidMcpServer(config) {
       try {
         const target = requirePodScopedUrl(cfg, url);
         const bytes = await readResource(cfg, target);
-        if (bytes.contentType && RDF_MEDIA.has(bytes.contentType)) {
+        if (bytes.contentType && RDF_MEDIA_TYPES.has(bytes.contentType)) {
           const { turtle } = await readRdf(cfg, target);
-          return { content: [{ type: "text", text: turtle }] };
+          return toolText(turtle);
         }
         if (bytes.text !== void 0) {
-          return { content: [{ type: "text", text: bytes.text }] };
+          return toolText(bytes.text);
         }
-        return {
-          content: [
-            {
-              type: "text",
-              text: `[binary ${bytes.contentType ?? "application/octet-stream"}, base64]
+        return toolText(
+          `[binary ${bytes.contentType ?? "application/octet-stream"}, base64]
 ${bytes.base64 ?? ""}`
-            }
-          ]
-        };
+        );
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
@@ -691,9 +698,9 @@ ${bytes.base64 ?? ""}`
     async ({ query, scope }) => {
       try {
         const matches = await search(cfg, query, scope ? { scope } : {});
-        return { content: [{ type: "text", text: JSON.stringify(matches, null, 2) }] };
+        return toolText(JSON.stringify(matches, null, 2));
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
@@ -711,28 +718,15 @@ ${bytes.base64 ?? ""}`
     },
     async ({ url, content, contentType: contentType2 }) => {
       if (!writesEnabled(cfg)) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: "write disabled: server is read-only (set readOnly:false to enable writes)."
-            }
-          ]
-        };
+        return toolError(
+          "write disabled: server is read-only (set readOnly:false to enable writes)."
+        );
       }
       try {
         const result = await writeResource(cfg, url, content, contentType2);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `wrote ${result.url}${result.etag ? ` (etag ${result.etag})` : ""}`
-            }
-          ]
-        };
+        return toolText(`wrote ${result.url}${result.etag ? ` (etag ${result.etag})` : ""}`);
       } catch (e) {
-        return { isError: true, content: [{ type: "text", text: errorText(e) }] };
+        return toolError(e);
       }
     }
   );
