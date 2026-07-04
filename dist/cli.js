@@ -4,6 +4,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 // src/server.ts
+import { isContainerUrl as isContainerUrl2 } from "@jeswr/guarded-fetch";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -265,6 +266,7 @@ function errorMessage(cause) {
 }
 
 // src/pod.ts
+import { isContainerUrl } from "@jeswr/guarded-fetch";
 import { ContainerDataset } from "@solid/object";
 import { DataFactory, Writer } from "n3";
 function isTextualContentType(ct) {
@@ -396,7 +398,7 @@ async function search(config, query, options = {}) {
       for (const hint of await typeIndexContainers(config)) {
         try {
           const scoped = requirePodScopedUrl(config, hint);
-          if (scoped.endsWith("/")) {
+          if (isContainerUrl(scoped)) {
             seedContainers.add(scoped);
           } else {
             const name = decodeURIComponent(scoped.replace(/\/$/, "").split("/").pop() ?? scoped);
@@ -556,9 +558,6 @@ var RDF_MEDIA = /* @__PURE__ */ new Set([
   "application/n-quads",
   "application/trig"
 ]);
-function isContainerUrl(url) {
-  return url.endsWith("/");
-}
 function errorText(e) {
   return e instanceof Error ? e.message : String(e);
 }
@@ -591,7 +590,7 @@ function createSolidMcpServer(config) {
     },
     async (uri) => {
       const target = requirePodScopedUrl(cfg, uri.toString());
-      if (isContainerUrl(target)) {
+      if (isContainerUrl2(target)) {
         const children = await listContainer(cfg, target);
         return {
           contents: [

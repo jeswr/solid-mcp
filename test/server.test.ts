@@ -39,6 +39,10 @@ function basePod() {
       body: containerTurtle(`${POD}notes/`, [{ name: "memo.txt" }]),
     },
     [`${POD}notes/memo.txt`]: { contentType: "text/plain", body: "remember the avocados" },
+    // Same resource, addressed with a QUERY STRING that happens to end in "/" —
+    // its PATH does not, so it is a resource, not a container (see the
+    // container-URL-classification regression test below).
+    [`${POD}notes/memo.txt?tag=/`]: { contentType: "text/plain", body: "remember the avocados" },
   });
 }
 
@@ -272,6 +276,17 @@ describe("resource read callback", () => {
   it("reads a plain text resource as text", async () => {
     const res = await client.readResource({ uri: `${POD}notes/memo.txt` });
     const first = res.contents[0] as { text?: string };
+    expect(first?.text).toContain("avocados");
+  });
+
+  it("reads a resource whose QUERY (not path) ends in '/' as a resource, not a container listing (regression: raw-string container check)", async () => {
+    const uri = `${POD}notes/memo.txt?tag=/`;
+    const res = await client.readResource({ uri });
+    const first = res.contents[0] as { mimeType?: string; text?: string };
+    // A raw `url.endsWith("/")` classifier misreads this URI as a container (its
+    // resolved string ends in "/" even though the PATH does not) and would
+    // return a JSON container listing here instead of the resource's own text.
+    expect(first?.mimeType).not.toBe("application/json");
     expect(first?.text).toContain("avocados");
   });
 });
