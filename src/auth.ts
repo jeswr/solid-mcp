@@ -1,4 +1,4 @@
-// AUTHORED-BY Claude Opus 4.8 (Fable unavailable) — re-review/upgrade candidate
+// AUTHORED-BY Claude Sonnet 5
 /**
  * The AUTH SEAM + the pod-scope (SSRF) guard.
  *
@@ -11,7 +11,29 @@
  * boundary: it refuses any URL that is not within the configured `podRoot`, so an
  * MCP client / agent cannot use a tool to reach an arbitrary origin (SSRF) or
  * escape the pod root via path traversal.
+ *
+ * The actual scope check + pod-scoped redirect-following is delegated to
+ * `@jeswr/guarded-fetch`'s consolidated `podScope` guard
+ * (`assertWithinPodScope` / `podScopedUrl` / `createPodScopedFetch`) — the
+ * suite's ONE reviewed home for "is this URL within the configured
+ * container?", a strict superset of what this module used to hand-roll (it
+ * additionally refuses embedded credentials, scheme-relative targets, and
+ * encoded path delimiters). `normalizePodRoot` below stays LOCAL and
+ * unchanged: unlike `@jeswr/guarded-fetch`'s more lenient
+ * `normalizePodBase` (which silently APPENDS a missing trailing slash),
+ * this server deliberately FAILS LOUD at startup config time when `podRoot`
+ * is missing its trailing slash (`podRoot must end in '/'`) — `podRoot` is
+ * operator-supplied server config, not a per-request value, so a silent
+ * auto-fix would mask a misconfiguration. Every error thrown by the
+ * guarded-fetch primitives is re-wrapped with the `pod-scope violation:`
+ * prefix this package's public contract (and its tests) rely on.
  */
+import {
+  assertWithinPodScope,
+  createPodScopedFetch,
+  PodScopeError,
+  podScopedUrl,
+} from "@jeswr/guarded-fetch";
 
 /**
  * Configuration for a Solid-MCP server instance.
@@ -79,39 +101,23 @@ export function normalizePodRoot(podRoot: string): string {
  * outside the pod (different origin, or a path that escapes the root) — this is
  * the SSRF / scope guard.
  *
- * The check is a strict prefix test on the normalized, canonical URL: a candidate
- * is in-pod iff its canonical string STARTS WITH the canonical podRoot. Because
- * both are run through `new URL()` first, `..` traversal and `%2e%2e` style
- * escapes are resolved away before the comparison, so they cannot smuggle the
- * target outside the root. A path that resolves above the root (e.g. the parent
- * container) will not share the podRoot prefix and is rejected.
+ * Delegates to `@jeswr/guarded-fetch`'s `assertWithinPodScope` (segment-boundary
+ * same-origin path-prefix check on the WHATWG-normalised, canonical URL — `..`
+ * traversal and `%2e%2e` style escapes are resolved away before the comparison,
+ * so they cannot smuggle the target outside the root), re-wrapping its error
+ * with the `pod-scope violation:` prefix this package's public contract relies
+ * on. The pod root itself is accepted by default (`allowRoot` defaults to
+ * `true`), matching this server's prior behaviour.
  */
 export function requirePodScopedUrl(config: { podRoot: string }, url: string): string {
   const root = normalizePodRoot(config.podRoot);
-  if (typeof url !== "string" || url.length === 0) {
-    throw new Error("a non-empty URL is required.");
-  }
-  let resolved: URL;
   try {
-    // Resolve relative refs against the (canonical) pod root. An absolute URL
-    // ignores the base; a relative one is resolved within the pod.
-    resolved = new URL(url, root);
-  } catch {
-    throw new Error(`not a valid URL (and not resolvable within the pod): ${JSON.stringify(url)}`);
-  }
-  if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
+    return assertWithinPodScope(root, url);
+  } catch (err) {
     throw new Error(
-      `pod-scope violation: only http(s) URLs are allowed, got protocol ${resolved.protocol} for ${url}`,
+      `pod-scope violation: ${err instanceof PodScopeError ? err.message : String(err)}`,
     );
   }
-  const canonical = resolved.toString();
-  if (!canonical.startsWith(root)) {
-    throw new Error(
-      `pod-scope violation: ${canonical} is outside the configured pod root ${root}. ` +
-        "The Solid-MCP server only operates within its pod (SSRF / scope guard).",
-    );
-  }
-  return canonical;
 }
 
 /**
@@ -126,68 +132,56 @@ export function podScopedUrlOrUndefined(
   config: { podRoot: string },
   url: string,
 ): string | undefined {
-  try {
-    return requirePodScopedUrl(config, url);
-  } catch {
-    return undefined;
-  }
+  const root = normalizePodRoot(config.podRoot);
+  return podScopedUrl(root, url);
 }
 
-/** Max redirect hops a pod-scoped fetch will follow before giving up. */
+/**
+ * Max redirect hops a pod-scoped fetch will follow before giving up. Preserved
+ * from this module's prior hand-rolled loop (guarded-fetch's own default is a
+ * more conservative 5) so behaviour is unchanged.
+ */
 const MAX_REDIRECT_HOPS = 10;
 
 /**
  * Wrap an authenticated `fetch` into a POD-SCOPED fetch that handles redirects
- * MANUALLY and validates every hop against the pod scope.
+ * MANUALLY and validates every hop against the pod scope, via
+ * `@jeswr/guarded-fetch`'s `createPodScopedFetch`.
  *
  * WHY: validating only the initial URL is not enough — `fetch` follows 3xx
  * redirects by default, so a poisoned in-pod resource could `302` to an external
  * (or internal-network) target and the underlying fetch would happily follow it,
- * re-opening the SSRF hole that the URL filter closed. This wrapper forces
- * `redirect: "manual"`, and on each 3xx it resolves the `Location` against the
- * current URL and requires the result to be WITHIN the pod before following
- * (fail-closed: a redirect that leaves the pod throws a pod-scope violation).
+ * re-opening the SSRF hole that the URL filter closed. `createPodScopedFetch`
+ * forces `redirect: "manual"` and re-checks every hop's `Location` against the
+ * pod scope before following (fail-closed: a redirect that leaves the pod throws
+ * a `PodScopeError`, re-wrapped here as a `pod-scope violation` mentioning the
+ * redirect, matching this package's prior error contract). Also applies the
+ * WHATWG Fetch-spec-correct method/body-rewrite rules on a method-changing or
+ * cross-origin hop (a strict improvement over the prior blanket "always
+ * downgrade to GET after hop 1").
  *
- * The first request's URL is NOT re-validated here (callers already pass a
- * scope-checked target); only the redirect targets are checked. Use this for every
- * fetch that touches pod data; the one deliberate exception is the off-pod WebID
- * profile fetch (the configured identity), which uses the raw fetch.
+ * Use this for every fetch that touches pod data; the one deliberate exception
+ * is the off-pod WebID profile fetch (the configured identity), which uses the
+ * raw fetch.
  */
 export function scopedFetch(config: { podRoot: string; fetch: typeof fetch }): typeof fetch {
   const root = normalizePodRoot(config.podRoot);
+  const scoped = createPodScopedFetch(root, {
+    fetch: config.fetch,
+    maxRedirects: MAX_REDIRECT_HOPS,
+  });
   const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    let currentUrl =
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    // Preserve the caller's init but force manual redirect handling.
-    let currentInit: RequestInit = { ...init, redirect: "manual" };
-    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-      const res = await config.fetch(currentUrl, currentInit);
-      // 3xx with a Location → a redirect we must vet before following.
-      const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
-      if (!isRedirect) {
-        return res;
-      }
-      const location = res.headers.get("location") ?? "";
-      let nextUrl: string;
-      try {
-        nextUrl = new URL(location, currentUrl).toString();
-      } catch {
+    try {
+      return await scoped(input, init);
+    } catch (err) {
+      if (err instanceof PodScopeError) {
         throw new Error(
-          `pod-scope violation: unparseable redirect Location ${JSON.stringify(location)} from ${currentUrl}.`,
+          `pod-scope violation: redirected outside the configured pod root ${root} ` +
+            `(redirect-based SSRF guard) — ${err.message}`,
         );
       }
-      if (!nextUrl.startsWith(root)) {
-        throw new Error(
-          `pod-scope violation: ${currentUrl} redirected to ${nextUrl}, which is outside the pod ` +
-            `root ${root} (redirect-based SSRF guard). The redirect was not followed.`,
-        );
-      }
-      currentUrl = nextUrl;
-      // After the first hop, drop a body (a 303/redirect-to-GET); keep method GET
-      // for safety on subsequent hops to avoid replaying a write to a new URL.
-      currentInit = { ...currentInit, method: "GET", body: undefined, redirect: "manual" };
+      throw err;
     }
-    throw new Error(`too many redirects (>${MAX_REDIRECT_HOPS}) for a pod-scoped fetch.`);
   };
   return wrapped as typeof fetch;
 }

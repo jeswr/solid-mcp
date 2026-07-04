@@ -1,17 +1,4 @@
 /**
- * The AUTH SEAM + the pod-scope (SSRF) guard.
- *
- * The server holds NO bespoke crypto. The caller supplies an already-authenticated
- * Solid-OIDC / DPoP `fetch` (e.g. from a reactive-auth session), and every pod
- * operation routes through it. This keeps token handling — the security-critical
- * part — in vetted upstream libraries, not in this package.
- *
- * The pod-scope guard ({@link requirePodScopedUrl}) is the SSRF / capability
- * boundary: it refuses any URL that is not within the configured `podRoot`, so an
- * MCP client / agent cannot use a tool to reach an arbitrary origin (SSRF) or
- * escape the pod root via path traversal.
- */
-/**
  * Configuration for a Solid-MCP server instance.
  *
  * The single non-negotiable input is an authenticated `fetch` and the `podRoot`
@@ -54,12 +41,13 @@ export declare function normalizePodRoot(podRoot: string): string;
  * outside the pod (different origin, or a path that escapes the root) — this is
  * the SSRF / scope guard.
  *
- * The check is a strict prefix test on the normalized, canonical URL: a candidate
- * is in-pod iff its canonical string STARTS WITH the canonical podRoot. Because
- * both are run through `new URL()` first, `..` traversal and `%2e%2e` style
- * escapes are resolved away before the comparison, so they cannot smuggle the
- * target outside the root. A path that resolves above the root (e.g. the parent
- * container) will not share the podRoot prefix and is rejected.
+ * Delegates to `@jeswr/guarded-fetch`'s `assertWithinPodScope` (segment-boundary
+ * same-origin path-prefix check on the WHATWG-normalised, canonical URL — `..`
+ * traversal and `%2e%2e` style escapes are resolved away before the comparison,
+ * so they cannot smuggle the target outside the root), re-wrapping its error
+ * with the `pod-scope violation:` prefix this package's public contract relies
+ * on. The pod root itself is accepted by default (`allowRoot` defaults to
+ * `true`), matching this server's prior behaviour.
  */
 export declare function requirePodScopedUrl(config: {
     podRoot: string;
@@ -77,20 +65,24 @@ export declare function podScopedUrlOrUndefined(config: {
 }, url: string): string | undefined;
 /**
  * Wrap an authenticated `fetch` into a POD-SCOPED fetch that handles redirects
- * MANUALLY and validates every hop against the pod scope.
+ * MANUALLY and validates every hop against the pod scope, via
+ * `@jeswr/guarded-fetch`'s `createPodScopedFetch`.
  *
  * WHY: validating only the initial URL is not enough — `fetch` follows 3xx
  * redirects by default, so a poisoned in-pod resource could `302` to an external
  * (or internal-network) target and the underlying fetch would happily follow it,
- * re-opening the SSRF hole that the URL filter closed. This wrapper forces
- * `redirect: "manual"`, and on each 3xx it resolves the `Location` against the
- * current URL and requires the result to be WITHIN the pod before following
- * (fail-closed: a redirect that leaves the pod throws a pod-scope violation).
+ * re-opening the SSRF hole that the URL filter closed. `createPodScopedFetch`
+ * forces `redirect: "manual"` and re-checks every hop's `Location` against the
+ * pod scope before following (fail-closed: a redirect that leaves the pod throws
+ * a `PodScopeError`, re-wrapped here as a `pod-scope violation` mentioning the
+ * redirect, matching this package's prior error contract). Also applies the
+ * WHATWG Fetch-spec-correct method/body-rewrite rules on a method-changing or
+ * cross-origin hop (a strict improvement over the prior blanket "always
+ * downgrade to GET after hop 1").
  *
- * The first request's URL is NOT re-validated here (callers already pass a
- * scope-checked target); only the redirect targets are checked. Use this for every
- * fetch that touches pod data; the one deliberate exception is the off-pod WebID
- * profile fetch (the configured identity), which uses the raw fetch.
+ * Use this for every fetch that touches pod data; the one deliberate exception
+ * is the off-pod WebID profile fetch (the configured identity), which uses the
+ * raw fetch.
  */
 export declare function scopedFetch(config: {
     podRoot: string;

@@ -77,9 +77,13 @@ handler), so a client gets a clear "write disabled" message rather than a crash.
 Every Resource read and every Tool call is confined to `podRoot`. A URL is rejected
 (with a `pod-scope violation` error) unless its canonical form is *within* the pod
 root — this is the SSRF / capability boundary that stops an agent from using a tool
-to reach an arbitrary origin or to escape the pod root via `..` path traversal
-(URLs are normalised via `new URL()` before the strict prefix check, so encoded and
-dot-segment escapes are resolved away first).
+to reach an arbitrary origin or to escape the pod root via `..` path traversal. The
+check itself is [`@jeswr/guarded-fetch`](https://github.com/jeswr/guarded-fetch)'s
+consolidated pod-scope guard (`assertWithinPodScope` / `createPodScopedFetch`): a
+segment-boundary same-origin path-prefix check on the WHATWG-normalised, canonical
+URL (so encoded and dot-segment escapes are resolved away first, and every redirect
+hop is re-checked, not just the initial URL) — wrapped here so its errors keep this
+package's `pod-scope violation:` message prefix.
 
 ### CLI (M1)
 

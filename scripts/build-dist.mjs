@@ -54,6 +54,10 @@ const EXTERNAL = [
   // @jeswr/fetch-rdf's own runtime deps — npm-published, kept external:
   "jsonld-streaming-parser",
   "content-type",
+  // @jeswr/guarded-fetch ships a proper committed dist/ (unlike fetch-rdf), so
+  // it is a normal `dependencies` entry a consumer's package manager resolves —
+  // no build-deps inlining needed.
+  "@jeswr/guarded-fetch",
 ];
 
 async function main(buildDir = outdir) {
