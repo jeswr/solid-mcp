@@ -1,4 +1,10 @@
 // src/auth.ts
+import {
+  assertWithinPodScope,
+  createPodScopedFetch,
+  PodScopeError,
+  podScopedUrl
+} from "@jeswr/guarded-fetch";
 function normalizePodRoot(podRoot) {
   if (typeof podRoot !== "string" || podRoot.length === 0) {
     throw new Error("podRoot is required (an absolute http(s) URL ending in '/').");
@@ -21,65 +27,36 @@ function normalizePodRoot(podRoot) {
 }
 function requirePodScopedUrl(config, url) {
   const root = normalizePodRoot(config.podRoot);
-  if (typeof url !== "string" || url.length === 0) {
-    throw new Error("a non-empty URL is required.");
-  }
-  let resolved;
   try {
-    resolved = new URL(url, root);
-  } catch {
-    throw new Error(`not a valid URL (and not resolvable within the pod): ${JSON.stringify(url)}`);
-  }
-  if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
+    return assertWithinPodScope(root, url);
+  } catch (err) {
     throw new Error(
-      `pod-scope violation: only http(s) URLs are allowed, got protocol ${resolved.protocol} for ${url}`
+      `pod-scope violation: ${err instanceof PodScopeError ? err.message : String(err)}`
     );
   }
-  const canonical = resolved.toString();
-  if (!canonical.startsWith(root)) {
-    throw new Error(
-      `pod-scope violation: ${canonical} is outside the configured pod root ${root}. The Solid-MCP server only operates within its pod (SSRF / scope guard).`
-    );
-  }
-  return canonical;
 }
 function podScopedUrlOrUndefined(config, url) {
-  try {
-    return requirePodScopedUrl(config, url);
-  } catch {
-    return void 0;
-  }
+  const root = normalizePodRoot(config.podRoot);
+  return podScopedUrl(root, url);
 }
 var MAX_REDIRECT_HOPS = 10;
 function scopedFetch(config) {
   const root = normalizePodRoot(config.podRoot);
+  const scoped = createPodScopedFetch(root, {
+    fetch: config.fetch,
+    maxRedirects: MAX_REDIRECT_HOPS
+  });
   const wrapped = async (input, init) => {
-    let currentUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    let currentInit = { ...init, redirect: "manual" };
-    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-      const res = await config.fetch(currentUrl, currentInit);
-      const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");
-      if (!isRedirect) {
-        return res;
-      }
-      const location = res.headers.get("location") ?? "";
-      let nextUrl;
-      try {
-        nextUrl = new URL(location, currentUrl).toString();
-      } catch {
+    try {
+      return await scoped(input, init);
+    } catch (err) {
+      if (err instanceof PodScopeError) {
         throw new Error(
-          `pod-scope violation: unparseable redirect Location ${JSON.stringify(location)} from ${currentUrl}.`
+          `pod-scope violation: redirected outside the configured pod root ${root} (redirect-based SSRF guard) \u2014 ${err.message}`
         );
       }
-      if (!nextUrl.startsWith(root)) {
-        throw new Error(
-          `pod-scope violation: ${currentUrl} redirected to ${nextUrl}, which is outside the pod root ${root} (redirect-based SSRF guard). The redirect was not followed.`
-        );
-      }
-      currentUrl = nextUrl;
-      currentInit = { ...currentInit, method: "GET", body: void 0, redirect: "manual" };
+      throw err;
     }
-    throw new Error(`too many redirects (>${MAX_REDIRECT_HOPS}) for a pod-scoped fetch.`);
   };
   return wrapped;
 }
