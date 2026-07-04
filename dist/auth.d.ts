@@ -53,6 +53,24 @@ export declare function requirePodScopedUrl(config: {
     podRoot: string;
 }, url: string): string;
 /**
+ * WRITE-TARGET variant of {@link requirePodScopedUrl}: identical, except the
+ * configured pod root itself is NOT an acceptable target (`allowRoot: false`).
+ *
+ * WHY a distinct guard for writes: `assertWithinPodScope` treats BOTH the
+ * slash-terminated root (`…/pod/`) AND its slashless alias (`…/pod`) as "the
+ * root", and — under the read default `allowRoot: true` — accepts both. But the
+ * slashless alias `…/pod` is a resource in the PARENT container, one level ABOVE
+ * the configured `…/pod/` sub-tree; accepting it as a WRITE target lets a client
+ * PUT outside the configured scope (a boundary-widening the prior hand-rolled
+ * `canonical.startsWith(root)` guard — with `root` slash-terminated — rejected,
+ * since `…/pod` does not start with `…/pod/`). Reads may legitimately address the
+ * container root (list/read it), so they keep `allowRoot: true`; writes must land
+ * strictly UNDER the root, so this guard sets `allowRoot: false`. Fail-closed.
+ */
+export declare function requirePodScopedWriteUrl(config: {
+    podRoot: string;
+}, url: string): string;
+/**
  * Non-throwing variant of {@link requirePodScopedUrl}: returns the canonical
  * in-pod URL string, or `undefined` if `url` is not within the pod root (or is
  * not a valid http(s) URL). Use this to FILTER OUT untrusted URLs (e.g. child

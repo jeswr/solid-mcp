@@ -15,6 +15,7 @@ export {
   normalizePodRoot,
   podScopedUrlOrUndefined,
   requirePodScopedUrl,
+  requirePodScopedWriteUrl,
   type SolidMcpConfig,
   writesEnabled,
 } from "./auth.js";

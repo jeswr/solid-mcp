@@ -110,9 +110,38 @@ export function normalizePodRoot(podRoot: string): string {
  * `true`), matching this server's prior behaviour.
  */
 export function requirePodScopedUrl(config: { podRoot: string }, url: string): string {
-  const root = normalizePodRoot(config.podRoot);
+  return scopeOrThrow(config.podRoot, url, { allowRoot: true });
+}
+
+/**
+ * WRITE-TARGET variant of {@link requirePodScopedUrl}: identical, except the
+ * configured pod root itself is NOT an acceptable target (`allowRoot: false`).
+ *
+ * WHY a distinct guard for writes: `assertWithinPodScope` treats BOTH the
+ * slash-terminated root (`…/pod/`) AND its slashless alias (`…/pod`) as "the
+ * root", and — under the read default `allowRoot: true` — accepts both. But the
+ * slashless alias `…/pod` is a resource in the PARENT container, one level ABOVE
+ * the configured `…/pod/` sub-tree; accepting it as a WRITE target lets a client
+ * PUT outside the configured scope (a boundary-widening the prior hand-rolled
+ * `canonical.startsWith(root)` guard — with `root` slash-terminated — rejected,
+ * since `…/pod` does not start with `…/pod/`). Reads may legitimately address the
+ * container root (list/read it), so they keep `allowRoot: true`; writes must land
+ * strictly UNDER the root, so this guard sets `allowRoot: false`. Fail-closed.
+ */
+export function requirePodScopedWriteUrl(config: { podRoot: string }, url: string): string {
+  return scopeOrThrow(config.podRoot, url, { allowRoot: false });
+}
+
+/**
+ * Shared core for the two scope guards: resolve+validate `url` against the
+ * normalised pod root, re-wrapping any {@link PodScopeError} with the
+ * `pod-scope violation:` prefix this package's public contract (and tests) rely
+ * on. `allowRoot` distinguishes read (root allowed) from write (root refused).
+ */
+function scopeOrThrow(podRoot: string, url: string, options: { allowRoot: boolean }): string {
+  const root = normalizePodRoot(podRoot);
   try {
-    return assertWithinPodScope(root, url);
+    return assertWithinPodScope(root, url, options);
   } catch (err) {
     throw new Error(
       `pod-scope violation: ${err instanceof PodScopeError ? err.message : String(err)}`,
