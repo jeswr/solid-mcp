@@ -71,7 +71,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
     "@jeswr/fetch-rdf": "github:jeswr/fetch-rdf#a8359a3764cb6b3c763e09ea211542a5dc7edc33",
-    "@microsoft/api-extractor": "7.58.10",
+    "@microsoft/api-extractor": "7.58.11",
     "@types/n3": "^1.16.0",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
