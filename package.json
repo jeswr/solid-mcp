@@ -65,7 +65,7 @@
     "@solid/object": "^0.8.0",
     "content-type": "^3.0.0",
     "jsonld-streaming-parser": "^5.0.0",
-    "n3": "^2.3.0",
+    "n3": "^2.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
