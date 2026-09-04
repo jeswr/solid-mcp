@@ -72,7 +72,7 @@
     "@biomejs/biome": "^2.5.11",
     "@jeswr/fetch-rdf": "github:jeswr/fetch-rdf#a8359a3764cb6b3c763e09ea211542a5dc7edc33",
     "@microsoft/api-extractor": "7.59.0",
-    "@types/n3": "^1.16.0",
+    "@types/n3": "^1.26.3",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
