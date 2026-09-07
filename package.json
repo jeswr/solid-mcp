@@ -74,7 +74,7 @@
     "@microsoft/api-extractor": "7.59.0",
     "@types/n3": "^1.26.3",
     "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
