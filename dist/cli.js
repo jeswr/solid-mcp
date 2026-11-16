@@ -363,7 +363,7 @@ function serializeTurtle(dataset) {
     writer.addQuads(dataset.getQuads(null, null, null, null));
     writer.end((err, result) => {
       if (err) reject(err);
-      else resolve(result);
+      else resolve(result ?? "");
     });
   });
 }
