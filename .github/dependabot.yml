@@ -11,6 +11,15 @@ updates:
       interval: "daily"
     labels:
       - "dependencies"
+    ignore:
+      # Runtime deps of the inlined @jeswr/fetch-rdf, kept external by
+      # scripts/build-dist.mjs. They must stay on the majors fetch-rdf is
+      # written for: content-type 3.x is ESM-only with no default export, so
+      # the bump to 3.0.0 made dist/ fail to load.
+      - dependency-name: "content-type"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jsonld-streaming-parser"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/" # Location of package manifests
     schedule:

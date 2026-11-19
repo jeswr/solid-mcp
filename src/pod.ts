@@ -211,7 +211,7 @@ function serializeTurtle(dataset: import("n3").Store): Promise<string> {
     writer.addQuads(dataset.getQuads(null, null, null, null));
     writer.end((err, result) => {
       if (err) reject(err);
-      else resolve(result);
+      else resolve(result ?? "");
     });
   });
 }
